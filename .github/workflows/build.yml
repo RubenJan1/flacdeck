@@ -49,9 +49,21 @@ jobs:
           npm run test:unit
           npm run test:licence
 
+      # Eerst de code bundelen naar out/. electron-builder pakt alleen in en
+      # bouwt niets: zonder deze stap ontbreekt out/main/index.js in de asar.
+      - name: Bundelen
+        run: npm run build
+
+      - name: Controleren dat de bundel er is
+        shell: bash
+        run: |
+          test -f out/main/index.js || { echo "out/main/index.js ontbreekt na de bundelstap"; exit 1; }
+          test -f out/preload/index.js || { echo "out/preload/index.js ontbreekt"; exit 1; }
+          test -f out/renderer/index.html || { echo "out/renderer/index.html ontbreekt"; exit 1; }
+
       # --publish always laadt de installers rechtstreeks in de release van deze
       # tag, inclusief de latest.yml / latest-mac.yml die de updater nodig heeft.
-      - name: Bouwen en publiceren
+      - name: Inpakken en publiceren
         run: npx electron-builder --${{ matrix.naam == 'windows' && 'win' || 'mac' }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
