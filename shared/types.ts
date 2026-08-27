@@ -179,6 +179,24 @@ export interface LibraryItem {
   duration: number
 }
 
+export type UpdateState =
+  | 'idle'
+  | 'uit'
+  | 'zoeken'
+  | 'actueel'
+  | 'beschikbaar'
+  | 'downloaden'
+  | 'gereed'
+  | 'fout'
+
+export interface UpdateStatus {
+  state: UpdateState
+  version: string
+  notes: string
+  progress: number
+  error: string
+}
+
 export interface LicenceInfo {
   id: string
   name: string

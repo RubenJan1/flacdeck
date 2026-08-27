@@ -12,7 +12,8 @@ import type {
   ProbeResult,
   Segment,
   Settings,
-  TrackMeta
+  TrackMeta,
+  UpdateStatus
 } from '../shared/types'
 
 const api = {
@@ -20,6 +21,17 @@ const api = {
     get: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
     save: (patch: Partial<Settings>): Promise<Settings> => ipcRenderer.invoke('settings:save', patch),
     reset: (): Promise<Settings> => ipcRenderer.invoke('settings:reset')
+  },
+  update: {
+    status: (): Promise<UpdateStatus> => ipcRenderer.invoke('update:status'),
+    check: (): Promise<UpdateStatus> => ipcRenderer.invoke('update:check'),
+    download: (): Promise<UpdateStatus> => ipcRenderer.invoke('update:download'),
+    install: (): Promise<void> => ipcRenderer.invoke('update:install'),
+    onStatus: (cb: (s: UpdateStatus) => void): (() => void) => {
+      const handler = (_e: unknown, s: UpdateStatus): void => cb(s)
+      ipcRenderer.on('update:status', handler)
+      return () => ipcRenderer.removeListener('update:status', handler)
+    }
   },
   licence: {
     status: (): Promise<LicenceStatus> => ipcRenderer.invoke('licence:status'),

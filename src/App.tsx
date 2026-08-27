@@ -6,7 +6,8 @@ import Library from './components/Library'
 import SettingsPanel from './components/SettingsPanel'
 import Setup from './components/Setup'
 import Activate from './components/Activate'
-import type { BinaryStatus, Job, LicenceStatus, Settings } from '../shared/types'
+import UpdateBar from './components/UpdateBar'
+import type { BinaryStatus, Job, LicenceStatus, Settings, UpdateStatus } from '../shared/types'
 
 export type Tab = 'download' | 'queue' | 'library' | 'settings'
 
@@ -30,6 +31,13 @@ export default function App(): JSX.Element {
   const [toast, setToast] = useState<Toast | null>(null)
   const [version, setVersion] = useState('')
   const [licence, setLicence] = useState<LicenceStatus | null>(null)
+  const [update, setUpdate] = useState<UpdateStatus>({
+    state: 'idle',
+    version: '',
+    notes: '',
+    progress: 0,
+    error: ''
+  })
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const notify = useCallback((text: string, kind: Toast['kind'] = 'info') => {
@@ -48,8 +56,11 @@ export default function App(): JSX.Element {
       setSettings(await window.api.settings.get())
       setJobs(await window.api.queue.list())
       setVersion(await window.api.app.version())
+      setUpdate(await window.api.update.status())
       await refreshBinaries()
     })()
+
+    const offUpdate = window.api.update.onStatus(setUpdate)
 
     const offJob = window.api.queue.onJob((job) => {
       setJobs((prev) => {
@@ -66,6 +77,7 @@ export default function App(): JSX.Element {
     return () => {
       offJob()
       offRemoved()
+      offUpdate()
       if (toastTimer.current) clearTimeout(toastTimer.current)
     }
   }, [refreshBinaries])
@@ -120,7 +132,11 @@ export default function App(): JSX.Element {
           </button>
         ))}
 
-        <div className="sidebar-foot">
+        <div style={{ marginTop: 'auto' }}>
+          <UpdateBar status={update} />
+        </div>
+
+        <div className="sidebar-foot" style={{ marginTop: 0 }}>
           {licence.info?.name && <div>op naam van {licence.info.name}</div>}
           <div>versie {version || '—'}</div>
           <div>yt-dlp {binaries?.ytdlp.ok ? binaries.ytdlp.version : 'niet geïnstalleerd'}</div>

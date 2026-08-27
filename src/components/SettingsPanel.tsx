@@ -25,6 +25,7 @@ export default function SettingsPanel({
   notify
 }: Props): JSX.Element {
   const [updating, setUpdating] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [pct, setPct] = useState(0)
   const [naming, setNaming] = useState(settings.naming)
 
@@ -247,6 +248,33 @@ export default function SettingsPanel({
           </button>
           <span className="faint small">
             Doe dit als downloads plotseling falen — YouTube verandert regelmatig iets.
+          </span>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-title">Versie</div>
+        <div className="row row-wrap">
+          <button
+            className="btn"
+            disabled={checking}
+            onClick={() => {
+              setChecking(true)
+              void window.api.update
+                .check()
+                .then((s) => {
+                  if (s.state === 'actueel') notify('Je hebt de nieuwste versie.', 'ok')
+                  else if (s.state === 'beschikbaar') notify('Versie ' + s.version + ' is beschikbaar.', 'ok')
+                  else if (s.state === 'uit') notify('Bijwerken werkt alleen in de geïnstalleerde app.', 'info')
+                  else if (s.state === 'fout') notify('Zoeken mislukt: ' + s.error, 'err')
+                })
+                .finally(() => setChecking(false))
+            }}
+          >
+            {checking ? 'Zoeken…' : 'Zoeken naar updates'}
+          </button>
+          <span className="faint small">
+            FlacDeck kijkt bij het starten zelf of er een nieuwe versie is.
           </span>
         </div>
       </div>

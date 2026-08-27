@@ -1,11 +1,21 @@
 name: Build
 
-# Bouwt installers voor Windows en macOS. macOS-builds moeten op een Mac-runner
-# draaien; vanaf Windows kun je geen .dmg maken.
+# Bouwt de installers voor Windows en macOS en zet ze in een release.
+# macOS-builds moeten op een Mac-runner draaien; die levert GitHub gratis.
+#
+# Nieuwe versie uitbrengen:
+#   1. versienummer ophogen in package.json
+#   2. git commit + git tag v1.0.1 + git push --follow-tags
+# Daarna staat er binnen ~10 minuten een release met .exe en .dmg klaar,
+# en zien bestaande gebruikers de update vanzelf in de app.
+
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -14,9 +24,9 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            script: pack:win
+            naam: windows
           - os: macos-latest
-            script: pack:mac
+            naam: macos
 
     runs-on: ${{ matrix.os }}
 
@@ -34,34 +44,27 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Bouwen
-        run: npm run ${{ matrix.script }}
+      - name: Tests zonder netwerk
+        run: |
+          npm run test:unit
+          npm run test:licence
+
+      # --publish always laadt de installers rechtstreeks in de release van deze
+      # tag, inclusief de latest.yml / latest-mac.yml die de updater nodig heeft.
+      - name: Bouwen en publiceren
+        run: npx electron-builder --${{ matrix.naam == 'windows' && 'win' || 'mac' }} --publish always
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Niet ondertekenen: er is geen Apple Developer-certificaat ingesteld.
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - uses: actions/upload-artifact@v4
+      - name: Installers bewaren als artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: flacdeck-${{ matrix.os }}
+          name: flacdeck-${{ matrix.naam }}
           path: |
             dist/*.exe
             dist/*.dmg
-            dist/*.zip
+            dist/*.yml
           if-no-files-found: warn
           retention-days: 14
-
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/**/*
-          draft: true
-          generate_release_notes: true

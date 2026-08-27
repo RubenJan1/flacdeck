@@ -72,4 +72,10 @@ linux:
   category: Audio
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
 
-publish: null
+# Waar de app naar nieuwe versies kijkt, en waar Actions de installers heen zet.
+# Verandert je GitHub-naam of de repo-naam, pas het hier én in package.json aan.
+publish:
+  provider: github
+  owner: RubenJan1
+  repo: flacdeck
+  releaseType: release

@@ -22,9 +22,12 @@
     "licence:issue": "node tools/licence.mjs issue",
     "licence:list": "node tools/licence.mjs list",
     "licence:verify": "node tools/licence.mjs verify",
-    "test:licence": "esbuild test/licence.test.ts --bundle --platform=node --format=cjs --outfile=out/test-licence.cjs --alias:electron=./test/electron-stub.ts --log-level=warning && node out/test-licence.cjs"
+    "test:licence": "esbuild test/licence.test.ts --bundle --platform=node --format=cjs --outfile=out/test-licence.cjs --alias:electron=./test/electron-stub.ts --log-level=warning && node out/test-licence.cjs",
+    "release": "electron-vite build && electron-builder --win --publish always",
+    "check:release": "node tools/check-release.mjs"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0"
   },
@@ -41,5 +44,9 @@
     "react-dom": "^19.0.0",
     "typescript": "^5.7.3",
     "vite": "^5.4.11"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RubenJan1/flacdeck.git"
   }
 }

@@ -38,10 +38,58 @@ npm run pack:win   # Windows-installer in dist/
 npm run pack:mac   # macOS-dmg in dist/  (moet op een Mac draaien)
 ```
 
-### De macOS-versie maken
+### De macOS-versie laten bouwen door GitHub
 
-Een `.dmg` kun je alleen op een Mac bouwen — Apple's gereedschap draait nergens anders.
-Je hebt dus een Mac nodig, al is het maar een kwartier. Op die Mac:
+Je hebt zelf **geen Mac nodig**. GitHub heeft Macs staan die de `.dmg` voor je bouwen, gratis
+voor een openbare repo. Jij pusht een tag, en tien minuten later staat er een downloadlink.
+
+**Eenmalig instellen:**
+
+1. Maak op [github.com/new](https://github.com/new) een repo met de naam **`flacdeck`**, zet
+   hem op **Public** en vink alles bij "Initialize" uít.
+2. Koppel dit project eraan en push:
+
+   ```bash
+   git remote add origin https://github.com/RubenJan1/flacdeck.git
+   git push -u origin main
+   ```
+
+   Vraagt hij om een wachtwoord: dat is niet je GitHub-wachtwoord, maar een *personal access
+   token*. Maak er een via **Settings → Developer settings → Personal access tokens → Tokens
+   (classic) → Generate new token**, met het vakje **repo** aangevinkt. Plak die als
+   wachtwoord.
+
+Heet je GitHub-account anders dan `RubenJan1`, pas dan de `owner:` in `electron-builder.yml`
+en de `repository` in `package.json` aan.
+
+**Een versie uitbrengen — dit is voortaan alles wat je doet:**
+
+```bash
+npm run check:release      # kijkt of de instellingen kloppen
+npm version patch          # 1.0.0 -> 1.0.1 (of: minor / major)
+git push --follow-tags
+```
+
+GitHub bouwt nu Windows én macOS, en zet in de release:
+
+| Bestand | Voor wie |
+| --- | --- |
+| `FlacDeck-1.0.1-windows-x64.exe` | Windows |
+| `FlacDeck-1.0.1-macos-arm64.dmg` | Macs met M1 t/m M4 |
+| `FlacDeck-1.0.1-macos-x64.dmg` | oudere Intel-Macs |
+
+Volgen kan onder het tabblad **Actions**. Is het klaar, dan staat de release op
+`github.com/RubenJan1/flacdeck/releases/latest` — die link kun je gewoon doorsturen. De
+ontvanger downloadt de `.dmg`, sleept FlacDeck naar Programma's, en klaar. Verder hoeft
+niemand iets te doen behalve de sleutel plakken die jij hebt gestuurd.
+
+**Bijwerken gaat vanzelf.** De app kijkt bij het starten of er een nieuwere versie is en meldt
+dat in de zijbalk. Eén klik downloadt hem, nog een klik herstart de app. Jij hoeft dus nooit
+meer een installer rond te sturen — alleen `npm version patch` en pushen.
+
+### De macOS-versie zelf bouwen (alternatief)
+
+Heb je toevallig een Mac en wil je niet via GitHub? Dan kan het ook met de hand:
 
 1. Installeer **Node.js 20 of hoger** via [nodejs.org](https://nodejs.org).
 2. Zet de projectmap erop — via een USB-stick, AirDrop of een zip. **Laat `node_modules`,
@@ -80,11 +128,8 @@ rechten. Twee oplossingen:
 `npx electron-builder --win --dir` werkt wel zonder: dat levert een draaiende app in
 `dist/win-unpacked/` op, alleen zonder installer.
 
-**Beide versies automatisch laten bouwen (optioneel).** In `.github/workflows/build.yml` zit
-een kant-en-klare GitHub Actions-workflow. Zet je het project ooit in een — eventueel privé —
-repo, dan bouwt die Windows én macOS voor je, zonder dat je zelf een Mac nodig hebt: push een
-tag `v1.0.0`, of start hem via **Actions → Build → Run workflow**. Gebruik je geen GitHub, dan
-kun je dat bestand gewoon laten staan of weggooien.
+Voor het uitbrengen van een versie hoef je dit niet op te lossen: GitHub bouwt de
+Windows-installer op zijn eigen machine, waar dit probleem niet speelt.
 
 ## Toegangssleutels
 
@@ -141,6 +186,13 @@ Het is een drempel, geen kluis.
   nodig — en dus iets om te hosten.
 - Een sleutel is niet aan een computer gebonden: wie hem doorgeeft, geeft toegang door. Zijn
   naam zit er wel in, dus je kunt zien waar een gelekte sleutel vandaan kwam.
+
+Bij een **openbare** repo is de broncode zichtbaar, dus iemand met verstand van zaken kan de
+sleutelcontrole eruit halen en zelf een versie bouwen. Dat is de prijs voor gratis Mac-builds
+en downloadlinks die zonder GitHub-account werken. Vind je dat bezwaarlijk, zet de repo dan op
+**Private**: de broncode is dan afgeschermd, maar downloaden vereist een GitHub-account met
+toegang (je haalt de installers dan zelf op en stuurt ze door), automatisch bijwerken vervalt,
+en Mac-builds tellen tienvoudig mee in de gratis minuten — grofweg 15 tot 20 builds per maand.
 
 ## Eerste start
 
@@ -210,6 +262,7 @@ electron/          hoofdproces
     tracklist.ts   hoofdstukken en tijdstempels omzetten naar segmenten
     naming.ts      bestandsnamen die op FAT32 en DJ-spelers werken
     licence.ts     toegangssleutels controleren
+    updater.ts     nieuwe versies zoeken en installeren
     usb.ts         schijven vinden, mapindelingen, kopiëren, playlist
     library.ts     de outputmap uitlezen
     queue.ts       taken plannen, voortgang, annuleren
@@ -218,7 +271,8 @@ shared/types.ts    types die beide kanten delen
 test/              tests
 tools/
   licence.mjs      sleutels uitgeven en nakijken
-  bouw-op-mac.sh   macOS-installers bouwen (draaien op een Mac)
+  bouw-op-mac.sh   macOS-installers met de hand bouwen (op een Mac)
+  check-release.mjs  controleert de instellingen voor het uitbrengen
 ```
 
 ```bash

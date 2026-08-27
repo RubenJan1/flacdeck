@@ -651,6 +651,20 @@ label.field > span {
   }
 }
 
+.update-bar {
+  margin: 10px 4px 0;
+  padding: 10px 11px;
+  border: 1px solid var(--accent-dim);
+  background: #22190a;
+  border-radius: 8px;
+}
+
+.update-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
 .gate {
   height: 100%;
   display: grid;

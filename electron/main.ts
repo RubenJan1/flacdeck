@@ -4,6 +4,13 @@ import fsp from 'node:fs/promises'
 import { binaryStatus, installYtdlp } from './services/binaries'
 import { deleteTracks, scanLibrary } from './services/library'
 import { activate, currentStatus, deactivate, requireLicence } from './services/licence'
+import {
+  checkForUpdate,
+  currentUpdateStatus,
+  downloadUpdate,
+  initUpdater,
+  installUpdate
+} from './services/updater'
 import { queue } from './services/queue'
 import { getSettings, resetSettings, saveSettings } from './services/store'
 import { segmentsFromText } from './services/tracklist'
@@ -63,6 +70,11 @@ function registerIpc(): void {
     send('ytdlp:progress', 100)
     return result
   })
+
+  ipcMain.handle('update:status', () => currentUpdateStatus())
+  ipcMain.handle('update:check', () => checkForUpdate())
+  ipcMain.handle('update:download', () => downloadUpdate())
+  ipcMain.handle('update:install', () => installUpdate())
 
   ipcMain.handle('licence:status', () => currentStatus())
   ipcMain.handle('licence:activate', (_e, key: string) => activate(key))
@@ -170,6 +182,8 @@ if (!app.requestSingleInstanceLock()) {
 
     queue.on('job', (job) => send('queue:job', job))
     queue.on('removed', (id) => send('queue:removed', id))
+
+    initUpdater((status) => send('update:status', status))
 
     // Zorg dat de outputmap bestaat voor de eerste download.
     await fsp.mkdir(getSettings().outputDir, { recursive: true }).catch(() => undefined)
