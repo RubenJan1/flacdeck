@@ -1,0 +1,12 @@
+# Shell-scripts moeten LF houden, anders weigert macOS ze uit te voeren.
+*.sh text eol=lf
+*.mjs text eol=lf
+
+# Laat git zelf bepalen wat tekst is; op Windows mag CRLF in de werkmap staan.
+* text=auto
+
+# Binaire bestanden nooit aanpassen.
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary

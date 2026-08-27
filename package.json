@@ -1,0 +1,45 @@
+{
+  "name": "flacdeck",
+  "version": "1.0.0",
+  "description": "YouTube & livestreams naar FLAC, met tags en DJ-USB export",
+  "main": "./out/main/index.js",
+  "author": "Ruben",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "npm run test:unit && npm run test:licence && npm run test:usb && npm run test:e2e",
+    "test:unit": "esbuild test/tracklist.test.ts --bundle --platform=node --format=cjs --outfile=out/test-unit.cjs --log-level=warning && node out/test-unit.cjs",
+    "test:usb": "esbuild test/usb.test.ts --bundle --platform=node --format=cjs --outfile=out/test-usb.cjs --alias:electron=./test/electron-stub.ts --external:ffmpeg-static --external:ffprobe-static --log-level=warning && node out/test-usb.cjs",
+    "test:e2e": "esbuild test/pipeline.test.ts --bundle --platform=node --format=cjs --outfile=out/test-e2e.cjs --alias:electron=./test/electron-stub.ts --external:ffmpeg-static --external:ffprobe-static --log-level=warning && node out/test-e2e.cjs",
+    "start": "electron-vite preview",
+    "pack:win": "electron-vite build && electron-builder --win --publish never",
+    "pack:mac": "electron-vite build && electron-builder --mac --publish never",
+    "pack:all": "electron-vite build && electron-builder -mw --publish never",
+    "licence:init": "node tools/licence.mjs init",
+    "licence:issue": "node tools/licence.mjs issue",
+    "licence:list": "node tools/licence.mjs list",
+    "licence:verify": "node tools/licence.mjs verify",
+    "test:licence": "esbuild test/licence.test.ts --bundle --platform=node --format=cjs --outfile=out/test-licence.cjs --alias:electron=./test/electron-stub.ts --log-level=warning && node out/test-licence.cjs"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "esbuild": "^0.28.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^5.4.11"
+  }
+}
