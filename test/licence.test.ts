@@ -3,11 +3,38 @@
  * toelaten, en geknoei, namaak en verlopen sleutels weigeren.
  */
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import os from 'node:os'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
-import { verifyKey } from '../electron/services/licence'
+import { verifyKeyWith } from '../electron/services/licence'
 
 const root = path.resolve(__dirname, '..')
+
+// Eigen wegwerpsleutelpaar in een tijdelijke map: keys/ staat niet in git, dus
+// op een verse kloon (en dus ook op de bouwserver) is de echte sleutel er niet.
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'flacdeck-licentie-'))
+const keysDir = path.join(tmp, 'keys')
+const pubModule = path.join(tmp, 'licence-key.ts')
+
+const toolEnv = {
+  ...process.env,
+  FLACDECK_KEYS_DIR: keysDir,
+  FLACDECK_PUBKEY_OUT: pubModule,
+  FLACDECK_LICENCE_LEDGER: 'off'
+}
+
+execFileSync(process.execPath, [path.join(root, 'tools', 'licence.mjs'), 'init'], {
+  encoding: 'utf8',
+  env: toolEnv
+})
+
+const PUBLIC_KEY = (fs.readFileSync(pubModule, 'utf8').match(/`([\s\S]*?)`/) as RegExpMatchArray)[1].trim()
+
+/** Controleert tegen het wegwerpsleutelpaar van deze test. */
+function verifyKey(raw: string) {
+  return verifyKeyWith(raw, PUBLIC_KEY)
+}
 
 let fail = 0
 function check(name: string, ok: boolean, detail = ''): void {
@@ -23,7 +50,7 @@ function issue(extra: string[] = []): string {
   const out = execFileSync(
     process.execPath,
     [path.join(root, 'tools', 'licence.mjs'), 'issue', '--naam', 'Testgebruiker', ...extra],
-    { encoding: 'utf8', env: { ...process.env, FLACDECK_LICENCE_LEDGER: 'off' } }
+    { encoding: 'utf8', env: toolEnv }
   )
   const key = out.split(/\r?\n/).find((l) => l.startsWith('FD1.'))
   if (!key) throw new Error('geen sleutel in de uitvoer:\n' + out)
@@ -89,6 +116,24 @@ check('verlooptekst noemt de datum', expiredResult.reason.includes('2020-01-01')
 const future = issue(['--verloopt', '2099-12-31'])
 check('sleutel met datum in de toekomst is geldig', verifyKey(future).valid)
 check('verloopdatum komt terug', verifyKey(future).info?.expires === '2099-12-31')
+
+// Ook controleren dat de app zelf een echte, ingebakken publieke sleutel heeft.
+// Zonder die controle zou een leeg of stuk bestand pas bij een gebruiker opvallen.
+import { LICENCE_PUBLIC_KEY } from '../shared/licence-key'
+
+let appKeyOk = false
+try {
+  crypto.createPublicKey(LICENCE_PUBLIC_KEY.trim() + '\n')
+  appKeyOk = true
+} catch {
+  appKeyOk = false
+}
+check('de app heeft een bruikbare publieke sleutel', appKeyOk)
+
+// Sleutels van dit wegwerppaar mogen niet werken in de echte app, en andersom.
+check('wegwerpsleutel werkt niet tegen de app-sleutel', !verifyKeyWith(good, LICENCE_PUBLIC_KEY).valid)
+
+fs.rmSync(tmp, { recursive: true, force: true })
 
 console.log('\n' + (fail ? fail + ' mislukt' : 'alles geslaagd'))
 process.exit(fail ? 1 : 0)

@@ -34,6 +34,15 @@ interface Payload {
  * alleen jij.
  */
 export function verifyKey(raw: string): LicenceStatus {
+  return verifyKeyWith(raw, LICENCE_PUBLIC_KEY)
+}
+
+/**
+ * Zelfde controle, maar tegen een opgegeven publieke sleutel. Bestaat zodat de
+ * tests met een eigen wegwerpsleutelpaar kunnen werken; de app gebruikt altijd
+ * de ingebakken sleutel via verifyKey().
+ */
+export function verifyKeyWith(raw: string, publicKeyPem: string): LicenceStatus {
   const cleaned = String(raw ?? '').replace(/\s+/g, '')
   if (!cleaned) return { valid: false, reason: 'Vul een sleutel in.', info: null }
 
@@ -54,7 +63,7 @@ export function verifyKey(raw: string): LicenceStatus {
     signatureOk = crypto.verify(
       null,
       Buffer.from(PREFIX + '.' + parts[1]),
-      crypto.createPublicKey(LICENCE_PUBLIC_KEY.trim() + '\n'),
+      crypto.createPublicKey(publicKeyPem.trim() + '\n'),
       fromB64url(parts[2])
     )
   } catch {

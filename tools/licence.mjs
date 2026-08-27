@@ -23,10 +23,17 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const keysDir = path.join(root, 'keys')
+
+// De tests draaien dit met een eigen wegwerpsleutelpaar in een tijdelijke map,
+// zodat ze niet afhankelijk zijn van keys/ — dat staat immers niet in git.
+const keysDir = process.env.FLACDECK_KEYS_DIR
+  ? path.resolve(process.env.FLACDECK_KEYS_DIR)
+  : path.join(root, 'keys')
 const privatePath = path.join(keysDir, 'private.pem')
 const ledgerPath = path.join(keysDir, 'uitgegeven.csv')
-const publicKeyModule = path.join(root, 'shared', 'licence-key.ts')
+const publicKeyModule = process.env.FLACDECK_PUBKEY_OUT
+  ? path.resolve(process.env.FLACDECK_PUBKEY_OUT)
+  : path.join(root, 'shared', 'licence-key.ts')
 
 const PREFIX = 'FD1'
 
