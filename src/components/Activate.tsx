@@ -44,6 +44,12 @@ export default function Activate({ onActivated }: Props): JSX.Element {
           onthoudt FlacDeck hem.
         </p>
 
+        <div className="note" style={{ marginTop: 12 }}>
+          Toegang tot deze app kost <strong style={{ color: 'var(--accent)' }}>€ 40,-</strong>.
+          Nog geen sleutel? Neem contact op met{' '}
+          <strong style={{ color: 'var(--text)' }}>RJ Websites</strong> — dan regelen we het.
+        </div>
+
         <textarea
           value={key}
           onChange={(e) => setKey(e.target.value)}
