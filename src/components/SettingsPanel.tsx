@@ -235,6 +235,12 @@ export default function SettingsPanel({
             <div>ffmpeg: {binaries.ffmpeg.ok ? binaries.ffmpeg.version : 'NIET GEVONDEN'}</div>
             <div>ffprobe: {binaries.ffprobe.ok ? binaries.ffprobe.version : 'NIET GEVONDEN'}</div>
             <div>yt-dlp: {binaries.ytdlp.ok ? binaries.ytdlp.version : 'NIET GEVONDEN'}</div>
+            <div>{binaries.ytdlp.path}</div>
+          </div>
+        )}
+        {binaries && !binaries.ytdlp.ok && binaries.ytdlp.error && (
+          <div className="note err" style={{ marginTop: 10 }}>
+            {binaries.ytdlp.error}
           </div>
         )}
         {updating && (

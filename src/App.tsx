@@ -145,7 +145,7 @@ export default function App(): JSX.Element {
 
       <main className="main">
         {needsSetup ? (
-          <Setup onReady={refreshBinaries} notify={notify} />
+          <Setup binaries={binaries} onReady={refreshBinaries} notify={notify} />
         ) : (
           <>
             {tab === 'download' && (

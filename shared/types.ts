@@ -212,8 +212,16 @@ export interface LicenceStatus {
   info: LicenceInfo | null
 }
 
+export interface BinaryInfo {
+  path: string
+  ok: boolean
+  version: string
+  /** Leeg als het onderdeel werkt; anders in mensentaal waarom niet. */
+  error: string
+}
+
 export interface BinaryStatus {
-  ffmpeg: { path: string; ok: boolean; version: string }
-  ffprobe: { path: string; ok: boolean; version: string }
-  ytdlp: { path: string; ok: boolean; version: string }
+  ffmpeg: BinaryInfo
+  ffprobe: BinaryInfo
+  ytdlp: BinaryInfo
 }

@@ -209,6 +209,25 @@ Werkt dat niet door een firewall of proxy? Zet `yt-dlp` er dan handmatig neer:
 Werkt een download plotseling niet meer? YouTube verandert regelmatig iets — klik dan op
 **Instellingen → yt-dlp bijwerken**. Dat is bijna altijd de oplossing.
 
+### Blijft macOS om yt-dlp vragen?
+
+FlacDeck controleert na het downloaden meteen of yt-dlp ook echt start, en onthoudt dat in
+`~/Library/Application Support/flacdeck/bin/yt-dlp.json`. Blijft het installatiescherm toch
+terugkomen, dan staat de echte reden op datzelfde scherm en bij **Instellingen → Onderdelen**.
+Zelf nakijken in Terminal:
+
+```bash
+cd ~/Library/Application\ Support/flacdeck/bin
+ls -l yt-dlp && xattr -l yt-dlp
+./yt-dlp --version
+```
+
+* `Bad CPU type` of een dyld-fout → je macOS is ouder dan 12; klik **Opnieuw installeren**, dan
+  pakt FlacDeck vanzelf de legacy-build.
+* `Operation not permitted` of "killed" → quarantaine: `xattr -d com.apple.quarantine yt-dlp`.
+* `Permission denied` → `chmod +x yt-dlp`.
+* Duurt de eerste `--version` heel lang? Dat is normaal: yt-dlp pakt zichzelf één keer uit.
+
 ## Een nummer uit een livestream halen
 
 1. Plak de link van de opname en klik **Analyseren**.
