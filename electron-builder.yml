@@ -57,6 +57,7 @@ mac:
 
 dmg:
   title: ${productName}
+  filesystem: APFS
   contents:
     - x: 140
       y: 190

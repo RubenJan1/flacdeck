@@ -1,6 +1,6 @@
 {
   "name": "flacdeck",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "YouTube & livestreams naar FLAC, met tags en DJ-USB export",
   "main": "./out/main/index.js",
   "author": "Ruben",
@@ -37,7 +37,7 @@
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^33.3.1",
-    "electron-builder": "^25.1.8",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^2.3.0",
     "esbuild": "^0.28.2",
     "react": "^19.0.0",
