@@ -1,13 +1,17 @@
 name: Build
 
-# Bouwt de installers voor Windows en macOS en zet ze in een release.
-# macOS-builds moeten op een Mac-runner draaien; die levert GitHub gratis.
+# Bouwt installers voor Windows en macOS en zet ze in een release.
 #
 # Nieuwe versie uitbrengen:
 #   1. versienummer ophogen in package.json
-#   2. git commit + git tag v1.0.1 + git push --follow-tags
-# Daarna staat er binnen ~10 minuten een release met .exe en .dmg klaar,
-# en zien bestaande gebruikers de update vanzelf in de app.
+#   2. git commit + git push
+#   3. git tag v1.0.3
+#   4. git push origin v1.0.3
+#
+# Dit maakt:
+#   - Windows x64
+#   - macOS arm64 (Apple Silicon)
+#   - macOS x64 (Intel)
 
 on:
   push:
@@ -23,10 +27,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Windows
           - os: windows-latest
             naam: windows
+            builder-target: win
+            builder-arch: x64
+
+          # Mac Apple Silicon
           - os: macos-latest
-            naam: macos
+            naam: macos-arm64
+            builder-target: mac
+            builder-arch: arm64
+
+          # Mac Intel
+          - os: macos-latest
+            naam: macos-x64
+            builder-target: mac
+            builder-arch: x64
 
     runs-on: ${{ matrix.os }}
 
@@ -49,8 +66,7 @@ jobs:
           npm run test:unit
           npm run test:licence
 
-      # Eerst de code bundelen naar out/. electron-builder pakt alleen in en
-      # bouwt niets: zonder deze stap ontbreekt out/main/index.js in de asar.
+      # Eerst de code bundelen naar out/.
       - name: Bundelen
         run: npm run build
 
@@ -61,13 +77,11 @@ jobs:
           test -f out/preload/index.js || { echo "out/preload/index.js ontbreekt"; exit 1; }
           test -f out/renderer/index.html || { echo "out/renderer/index.html ontbreekt"; exit 1; }
 
-      # --publish always laadt de installers rechtstreeks in de release van deze
-      # tag, inclusief de latest.yml / latest-mac.yml die de updater nodig heeft.
+      # Iedere job bouwt precies één platform/architectuur.
       - name: Inpakken en publiceren
-        run: npx electron-builder --${{ matrix.naam == 'windows' && 'win' || 'mac' }} --publish always
+        run: npx electron-builder --${{ matrix.builder-target }} --${{ matrix.builder-arch }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Niet ondertekenen: er is geen Apple Developer-certificaat ingesteld.
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Installers bewaren als artifact

@@ -40,21 +40,17 @@ mac:
   category: public.app-category.music
   target:
     - target: dmg
-      arch: [arm64, x64]
   artifactName: ${productName}-${version}-macos-${arch}.${ext}
   darkModeSupport: true
   files:
     - '!node_modules/ffprobe-static/bin/win32/**'
     - '!node_modules/ffprobe-static/bin/linux/**'
-  # Zonder Apple Developer-account is de app niet ondertekend. Hardened runtime
-  # uitzetten voorkomt dat macOS 'm daarna alsnog weigert te starten.
   hardenedRuntime: false
   gatekeeperAssess: false
   identity: null
   extendInfo:
     LSMinimumSystemVersion: '11.0'
     NSMicrophoneUsageDescription: FlacDeck gebruikt geen microfoon.
-
 dmg:
   title: ${productName}
   filesystem: APFS
