@@ -17,6 +17,12 @@ interface Batch {
   coverPath: string | null
   /** De bron wordt één keer opgehaald en door alle segmenten gedeeld. */
   sourcePromise: Promise<string> | null
+  /**
+   * Eigen controller voor die gedeelde download. Hing die aan de job die hem
+   * toevallig als eerste startte, dan sloopte het annuleren van dat ene nummer
+   * de download voor de hele lijst.
+   */
+  sourceController: AbortController
   sourceDuration: number
   remaining: number
 }
@@ -59,6 +65,7 @@ export class JobQueue extends EventEmitter {
       workDir: path.join(app.getPath('userData'), 'cache', batchId),
       coverPath: null,
       sourcePromise: null,
+      sourceController: new AbortController(),
       sourceDuration,
       remaining: segments.length
     }
@@ -99,6 +106,19 @@ export class JobQueue extends EventEmitter {
     this.controllers.get(id)?.abort()
     this.pending = this.pending.filter((p) => p !== id)
     this.patch(id, { status: 'geannuleerd', stage: 'geannuleerd', finishedAt: Date.now() })
+    this.stopSourceIfIdle(job.batchId)
+  }
+
+  /** De gedeelde download pas afbreken als er niemand meer op wacht. */
+  private stopSourceIfIdle(batchId: string): void {
+    const batch = this.batches.get(batchId)
+    if (!batch) return
+    const stillWanted = [...this.jobs.values()].some(
+      (j) =>
+        j.batchId === batchId &&
+        (j.status === 'wachtrij' || j.status === 'ophalen' || j.status === 'downloaden' || j.status === 'knippen')
+    )
+    if (!stillWanted) batch.sourceController.abort()
   }
 
   cancelAll(): void {
@@ -112,17 +132,30 @@ export class JobQueue extends EventEmitter {
         this.emit('removed', id)
       }
     }
+    // Batches die alleen nog opgeruimde jobs hadden, hielden hun werkmap vast.
+    for (const [batchId, batch] of [...this.batches.entries()]) {
+      if ([...this.jobs.values()].some((j) => j.batchId === batchId)) continue
+      batch.sourceController.abort()
+      void fsp.rm(batch.workDir, { recursive: true, force: true }).catch(() => undefined)
+      this.batches.delete(batchId)
+    }
   }
 
   retry(id: string): void {
     const job = this.jobs.get(id)
     if (!job || job.status === 'wachtrij') return
-    if (!this.batches.has(job.batchId)) {
+    const batch = this.batches.get(job.batchId)
+    if (!batch) {
       this.patch(id, { status: 'fout', error: 'Bron niet meer beschikbaar, voeg de link opnieuw toe.' })
       return
     }
-    const batch = this.batches.get(job.batchId)
-    if (batch) batch.remaining += 1
+    // Een afgebroken download liet een afgewezen promise achter; wie daar op
+    // bleef wachten kreeg bij elke poging opnieuw dezelfde fout te zien.
+    if (batch.sourceController.signal.aborted) {
+      batch.sourceController = new AbortController()
+      batch.sourcePromise = null
+    }
+    batch.remaining += 1
     this.patch(id, { status: 'wachtrij', stage: 'in de wachtrij', progress: 0, error: null, finishedAt: null })
     this.pending.push(id)
     this.drain()
@@ -142,7 +175,7 @@ export class JobQueue extends EventEmitter {
   }
 
   /** Downloadt de bron één keer per batch en deelt hem tussen de segmenten. */
-  private source(batch: Batch, controller: AbortController): Promise<string> {
+  private source(batch: Batch): Promise<string> {
     if (!batch.sourcePromise) {
       batch.sourcePromise = downloadAudio({
         url: batch.req.url,
@@ -151,7 +184,12 @@ export class JobQueue extends EventEmitter {
         isLive: batch.req.isLive,
         settings: batch.settings,
         onProgress: (pct) => this.broadcastBatch(batch.id, pct),
-        signal: controller.signal
+        signal: batch.sourceController.signal
+      }).catch((err: unknown) => {
+        // Niet de afgewezen promise bewaren: anders faalt elk volgend nummer en
+        // elke poging tot opnieuw proberen meteen met dezelfde oude fout.
+        batch.sourcePromise = null
+        throw err
       })
     }
     return batch.sourcePromise
@@ -228,7 +266,7 @@ export class JobQueue extends EventEmitter {
       const coverPath = await this.cover(batch, controller)
 
       this.patch(id, { status: 'downloaden', stage: 'bron downloaden', progress: 5 })
-      const input = await this.source(batch, controller)
+      const input = await this.source(batch)
 
       if (controller.signal.aborted) throw new CancelledError()
 
@@ -268,11 +306,19 @@ export class JobQueue extends EventEmitter {
       this.controllers.delete(id)
       batch.remaining -= 1
       if (batch.remaining <= 0) {
-        if (!batch.settings.keepSource) {
-          await fsp.rm(batch.workDir, { recursive: true, force: true }).catch(() => undefined)
+        // Is er iets misgegaan, dan blijft de batch staan zodat "opnieuw
+        // proberen" de bron nog kan gebruiken in plaats van te melden dat hij
+        // weg is. Pas bij het legen van de lijst gaat hij echt weg.
+        const recoverable = [...this.jobs.values()].some(
+          (j) => j.batchId === batch.id && (j.status === 'fout' || j.status === 'geannuleerd')
+        )
+        if (!recoverable) {
+          if (!batch.settings.keepSource) {
+            await fsp.rm(batch.workDir, { recursive: true, force: true }).catch(() => undefined)
+          }
+          this.batches.delete(batch.id)
+          this.emit('batchDone', batch.id)
         }
-        this.batches.delete(batch.id)
-        this.emit('batchDone', batch.id)
       }
     }
   }

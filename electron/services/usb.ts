@@ -1,3 +1,4 @@
+import type { Dirent } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import fs from 'node:fs'
@@ -5,7 +6,16 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { mediaInfo } from './audio'
 import { applyTemplate, sanitize, uniqueName } from './naming'
-import { emptyMeta, type DriveInfo, type ExportLayout, type ExportRequest, type ExportResult, type TrackMeta } from '../../shared/types'
+import {
+  emptyMeta,
+  type DriveCheck,
+  type DriveInfo,
+  type EjectResult,
+  type ExportLayout,
+  type ExportRequest,
+  type ExportResult,
+  type TrackMeta
+} from '../../shared/types'
 
 const execFileAsync = promisify(execFile)
 
@@ -181,9 +191,23 @@ async function findCopy(dir: string, base: string, size: number): Promise<string
   return null
 }
 
+/**
+ * Kopieert en dwingt de schrijfcache naar de stick.
+ *
+ * Zonder die fsync blijft een kopie in het geheugen van het besturingssysteem
+ * hangen. macOS cachet schrijfacties naar exFAT ruim, dus meldde FlacDeck
+ * "klaar" terwijl er nog niets op de stick stond. Wie hem er dan uittrok hield
+ * een halve FAT-tabel over: stick onleesbaar, of nog maar een paar nummers.
+ */
 async function copyFile(src: string, dest: string): Promise<number> {
   await fsp.mkdir(path.dirname(dest), { recursive: true })
   await fsp.copyFile(src, dest)
+  const handle = await fsp.open(dest, 'r+')
+  try {
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
   return (await fsp.stat(dest)).size
 }
 
@@ -207,6 +231,249 @@ function fsWarnings(target: string, filesystem: string, layout: ExportLayout): s
   return warnings
 }
 
+/* --------------------------- controle vooraf ----------------------------- */
+
+const FORMAT_HELP =
+  process.platform === 'darwin'
+    ? 'Open Schijfhulpprogramma (Programma’s › Hulpprogramma’s), kies de stick in de linkerkolom, klik op Wissen en kies bij Structuur de optie ExFAT. Let op: alles wat er nu op staat gaat weg.'
+    : 'Klik in Verkenner met de rechtermuisknop op de stick, kies Formatteren en zet Bestandssysteem op exFAT. Let op: alles wat er nu op staat gaat weg.'
+
+/**
+ * Kijkt vóór het kopiëren of deze stick bruikbaar is. Eerst alles kopiëren en
+ * daarna pas melden dat een speler het niet leest is precies de val waar een
+ * onervaren gebruiker in trapt.
+ */
+export async function checkDrive(target: string, layout: ExportLayout): Promise<DriveCheck> {
+  if (!target) {
+    return {
+      level: 'block',
+      title: 'Nog geen stick gekozen',
+      message: 'Er is niets geselecteerd om naar te kopiëren.',
+      fix: 'Steek een USB-stick in de computer en kies hem in de lijst.'
+    }
+  }
+
+  if (!fs.existsSync(target)) {
+    return {
+      level: 'block',
+      title: 'De stick is er niet meer',
+      message: 'De computer ziet ' + target + ' niet meer. Waarschijnlijk is de stick eruit gehaald.',
+      fix: 'Steek de stick er opnieuw in en klik daarna op “Opnieuw zoeken”.'
+    }
+  }
+
+  // Echt proberen te schrijven: alleen zo komen schrijfbeveiliging en een
+  // alleen-lezen aangekoppelde NTFS-stick op de Mac boven water.
+  const probe = path.join(target, '.flacdeck-test')
+  try {
+    await fsp.writeFile(probe, 'x')
+    await fsp.rm(probe, { force: true })
+  } catch {
+    return {
+      level: 'block',
+      title: 'Er kan niets op deze stick geschreven worden',
+      message:
+        process.platform === 'darwin'
+          ? 'De Mac mag niet op deze stick schrijven. Dat komt bijna altijd doordat de stick in Windows-formaat NTFS staat; macOS kan die alleen lezen.'
+          : 'Windows mag niet op deze stick schrijven. Mogelijk staat het schuifje voor schrijfbeveiliging op de stick aan.',
+      fix: FORMAT_HELP
+    }
+  }
+
+  const drives = await listDrives()
+  const drive = drives.find((d) => target.toLowerCase().startsWith(d.path.toLowerCase()))
+  const fsName = (drive?.filesystem ?? '').toUpperCase()
+  const playerLayout = layout === 'dj' || layout === 'car'
+
+  if (playerLayout && (fsName.includes('APFS') || fsName.includes('HFS'))) {
+    return {
+      level: 'block',
+      title: 'Deze stick staat in Mac-formaat',
+      message:
+        'De stick is opgemaakt als ' +
+        (drive?.filesystem ?? 'Mac OS Extended') +
+        '. Een DJ-speler of autoradio leest dat niet: die ziet straks een lege stick.',
+      fix: FORMAT_HELP
+    }
+  }
+
+  if (playerLayout && fsName.includes('NTFS')) {
+    return {
+      level: 'block',
+      title: 'Deze stick staat in NTFS',
+      message: 'Pioneer, Denon en autoradio’s lezen alleen FAT32 of exFAT. NTFS blijft stil.',
+      fix: FORMAT_HELP
+    }
+  }
+
+  if (!fsName) {
+    return {
+      level: 'warn',
+      title: 'Onbekend formaat',
+      message: 'FlacDeck kan niet vaststellen hoe deze stick is opgemaakt.',
+      fix: 'Werkt de stick straks niet in de speler, maak hem dan opnieuw op als exFAT.'
+    }
+  }
+
+  return {
+    level: 'ok',
+    title: 'Deze stick is goed',
+    message:
+      (drive?.label ? drive.label + ' · ' : '') + (drive?.filesystem || 'onbekend') + ' — klaar voor gebruik.',
+    fix: ''
+  }
+}
+
+/* ------------------------- verborgen rommel weg --------------------------- */
+
+/**
+ * Alleen de mappen die macOS zelf op een FAT-stick zet. Windows-eigen dingen
+ * als System Volume Information, $RECYCLE.BIN en desktop.ini blijven met rust:
+ * die horen bij de schijf en zijn niet van ons om weg te gooien.
+ */
+const JUNK_DIRS = new Set([
+  '.spotlight-v100',
+  '.fseventsd',
+  '.trashes',
+  '.temporaryitems',
+  '.documentrevisions-v100'
+])
+
+function isJunkFile(name: string): boolean {
+  return name.toLowerCase() === '.ds_store' || name.startsWith('._')
+}
+
+/**
+ * macOS strooit "._Naam.flac" en .DS_Store over elke FAT-stick. Autoradio's en
+ * oudere CDJ's tellen die AppleDouble-bestanden mee als nummer of slaan erop
+ * stuk: je hoort dan twee tellen ruis tussen elk nummer, of de speler slaat de
+ * hele map over. Ze horen er dus af voordat de stick de deur uit gaat.
+ *
+ * Draait uitsluitend op een verwisselbare schijf. Op een vaste schijf zou dit
+ * bestanden opruimen waar FlacDeck niets mee te maken heeft.
+ */
+export async function cleanupDrive(target: string): Promise<number> {
+  const drives = await listDrives()
+  const drive = drives.find((d) => target.toLowerCase().startsWith(d.path.toLowerCase()))
+  if (!drive?.removable) return 0
+  return sweep(target, 0)
+}
+
+async function sweep(dir: string, depth: number): Promise<number> {
+  if (depth > 6) return 0
+  let entries: Dirent[]
+  try {
+    entries = await fsp.readdir(dir, { withFileTypes: true })
+  } catch {
+    return 0
+  }
+
+  let removed = 0
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name)
+    try {
+      if (entry.isDirectory()) {
+        if (JUNK_DIRS.has(entry.name.toLowerCase())) {
+          await fsp.rm(full, { recursive: true, force: true })
+          removed += 1
+        } else {
+          removed += await sweep(full, depth + 1)
+        }
+      } else if (isJunkFile(entry.name)) {
+        await fsp.rm(full, { force: true })
+        removed += 1
+      }
+    } catch {
+      /* mag mislukken: systeembestanden zijn soms in gebruik */
+    }
+  }
+  return removed
+}
+
+/* ---------------------------- veilig uitwerpen ---------------------------- */
+
+/** De schijf waar target op ligt, of null als dat er geen blijkt te zijn. */
+async function driveOf(target: string): Promise<DriveInfo | null> {
+  const drives = await listDrives()
+  return drives.find((d) => target.toLowerCase().startsWith(d.path.toLowerCase())) ?? null
+}
+
+/**
+ * Werpt de stick uit. Dat is tegelijk de enige echte garantie dat alles op de
+ * stick staat: het besturingssysteem schrijft bij het ontkoppelen zijn laatste
+ * buffers weg. Daarom is dit in de eenvoudige modus geen keuze maar een stap.
+ */
+export async function ejectDrive(target: string): Promise<EjectResult> {
+  const drive = await driveOf(target)
+
+  // Nooit zomaar de schijf uitwerpen waar target toevallig op ligt: wie in de
+  // geavanceerde modus een gewone map koos, zou anders zijn systeemschijf
+  // aanbieden om losgekoppeld te worden.
+  if (!drive) {
+    return {
+      ok: false,
+      message: 'Deze map hoort niet bij een schijf die FlacDeck kan loskoppelen. Werp hem met de hand uit.'
+    }
+  }
+  if (!drive.removable) {
+    return {
+      ok: false,
+      message:
+        (drive.label || drive.path) +
+        ' is een vaste schijf, geen losse stick. Die hoeft niet losgekoppeld te worden.'
+    }
+  }
+
+  const root = drive.path
+
+  try {
+    if (process.platform === 'darwin') {
+      await execFileAsync('diskutil', ['eject', root], { timeout: 60000 })
+    } else {
+      const letter = root.replace(/[\\/:]/g, '').slice(0, 1).toUpperCase()
+      if (!/^[A-Z]$/.test(letter)) throw new Error('Geen geldige schijfletter gevonden voor ' + root)
+      // Write-VolumeCache leegt eerst de schrijfcache, daarna pas uitwerpen.
+      const script =
+        "try { Write-VolumeCache -DriveLetter '" +
+        letter +
+        "' -ErrorAction Stop } catch {}; " +
+        "$item = (New-Object -comObject Shell.Application).Namespace(17).ParseName('" +
+        letter +
+        ":'); " +
+        "if ($item) { $item.InvokeVerb('Eject') }"
+      await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+        windowsHide: true,
+        timeout: 60000
+      })
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      message:
+        'Uitwerpen lukte niet: ' +
+        (err as Error).message.trim().split('\n')[0] +
+        '. Trek de stick er nog NIET uit — werp hem met de hand uit ' +
+        (process.platform === 'darwin'
+          ? '(sleep de stick naar de prullenbak, of klik op het uitwerp-pijltje in de Finder).'
+          : '(klik rechtsonder op het USB-icoon en kies Uitwerpen).')
+    }
+  }
+
+  // Wachten tot de koppeling echt weg is; pas dan mag de stick eruit.
+  for (let i = 0; i < 24; i += 1) {
+    if (!fs.existsSync(root)) {
+      return { ok: true, message: 'De stick is losgekoppeld. Je mag hem er nu uithalen.' }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+
+  return {
+    ok: false,
+    message:
+      'De computer houdt de stick nog vast. Sluit programma’s die bestanden van de stick open hebben en werp hem daarna met de hand uit. Trek hem er niet zomaar uit.'
+  }
+}
+
 export async function exportTracks(
   req: ExportRequest,
   onProgress?: (done: number, total: number, current: string) => void
@@ -219,7 +486,10 @@ export async function exportTracks(
     failed: [],
     bytes: 0,
     playlistPath: null,
-    warnings: []
+    warnings: [],
+    verified: 0,
+    missing: [],
+    junkRemoved: 0
   }
 
   const drives = await listDrives()
@@ -230,7 +500,13 @@ export async function exportTracks(
   await fsp.mkdir(rootDir, { recursive: true })
 
   const takenPerDir = new Map<string, Set<string>>()
-  const playlistEntries: { relative: string; meta: TrackMeta; duration: number }[] = []
+  const playlistEntries: {
+    relative: string
+    absolute: string
+    size: number
+    meta: TrackMeta
+    duration: number
+  }[] = []
 
   for (let i = 0; i < req.paths.length; i += 1) {
     const src = req.paths[i]
@@ -258,18 +534,32 @@ export async function exportTracks(
       } else {
         // Ook eerder hernoemde kopieën meenemen, anders groeit de stick bij elke
         // export aan met "(2)", "(3)", "(4)" van hetzelfde nummer.
-        const already = await findCopy(dir, base, (await fsp.stat(src)).size)
+        const srcSize = (await fsp.stat(src)).size
+        const already = await findCopy(dir, base, srcSize)
         if (already) {
           result.skipped += 1
-          playlistEntries.push({ relative: path.relative(req.target, already), meta, duration })
+          playlistEntries.push({
+            relative: path.relative(req.target, already),
+            absolute: already,
+            size: srcSize,
+            meta,
+            duration
+          })
           continue
         }
         dest = path.join(dir, uniqueName(base, '.flac', taken))
       }
 
-      result.bytes += await copyFile(src, dest)
+      const written = await copyFile(src, dest)
+      result.bytes += written
       result.copied += 1
-      playlistEntries.push({ relative: path.relative(req.target, dest), meta, duration })
+      playlistEntries.push({
+        relative: path.relative(req.target, dest),
+        absolute: dest,
+        size: written,
+        meta,
+        duration
+      })
     } catch (err) {
       result.failed.push({ path: src, error: (err as Error).message })
     }
@@ -285,8 +575,36 @@ export async function exportTracks(
       lines.push('#EXTINF:' + secs + ',' + (e.meta.artist ? e.meta.artist + ' - ' : '') + e.meta.title)
       lines.push(e.relative.split(path.sep).join('/'))
     }
-    await fsp.writeFile(playlistPath, lines.join('\r\n') + '\r\n', 'utf8')
+    const handle = await fsp.open(playlistPath, 'w')
+    try {
+      await handle.writeFile(lines.join('\r\n') + '\r\n', 'utf8')
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
     result.playlistPath = playlistPath
+  }
+
+  result.junkRemoved = await cleanupDrive(req.target)
+
+  // Terugtellen wat er daadwerkelijk op de stick staat. `copied` telt alleen
+  // geslaagde schrijfopdrachten; pas een hertelling van de stick zelf bewijst
+  // dat de gebruiker straks ook echt al zijn nummers hoort.
+  for (const entry of playlistEntries) {
+    try {
+      const stat = await fsp.stat(entry.absolute)
+      if (stat.size === entry.size) result.verified += 1
+      else result.missing.push(path.basename(entry.absolute))
+    } catch {
+      result.missing.push(path.basename(entry.absolute))
+    }
+  }
+
+  if (result.missing.length) {
+    result.warnings.push(
+      result.missing.length +
+        ' bestand(en) staan niet goed op de stick. Kopieer opnieuw en haal de stick er tussendoor niet uit.'
+    )
   }
 
   return result

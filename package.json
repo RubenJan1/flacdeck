@@ -1,6 +1,6 @@
 {
   "name": "flacdeck",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "YouTube & livestreams naar FLAC, met tags en DJ-USB export",
   "main": "./out/main/index.js",
   "author": "Ruben",

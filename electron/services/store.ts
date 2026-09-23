@@ -5,6 +5,7 @@ import type { Settings } from '../../shared/types'
 
 function defaults(): Settings {
   return {
+    simpleMode: true,
     outputDir: path.join(app.getPath('music'), 'FlacDeck'),
     naming: '{artist} - {title}',
     concurrency: 2,

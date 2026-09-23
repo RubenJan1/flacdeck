@@ -8,15 +8,19 @@ Klaar voor export naar een USB-stick in de mapindeling die je apparaat begrijpt.
 
 - **Link erin, FLAC eruit.** Plak een YouTube-URL, FlacDeck haalt titel, artiest, jaar en
   hoesafbeelding op en schrijft die als Vorbis-tags in het bestand.
-- **Knippen op tijd.** Geef per nummer een begin- en eindtijd (`4:12`, `1:02:30` of gewoon
-  seconden). Leeg laten betekent "vanaf het begin" of "tot het eind".
+- **Eenvoudige modus.** Standaard start FlacDeck als een scherm dat je in vijf stappen langs
+  link, nummers, ophalen, stick en uitwerpen leidt — één ding tegelijk, grote knoppen. Het
+  volledige scherm met tabbladen zit achter **Geavanceerd**.
+- **Knippen op tijd.** Geef per nummer een begin- en eindtijd in aparte vakjes voor minuten en
+  seconden. Leeg laten betekent "vanaf het begin" of "tot het eind".
 - **Tracklist automatisch overnemen.** Heeft de video hoofdstukken, dan worden dat de nummers.
   Zo niet, dan leest FlacDeck de tijdstempels uit de videobeschrijving. Je kunt ook een
   tracklist plakken — met de tijd vooraan of achteraan, met of zonder nummering.
 - **Alles in één keer.** Uit één set van drie uur haal je in één run twintig losse tracks;
   de bron wordt maar één keer gedownload.
-- **USB-export.** Vier mapindelingen, waaronder één voor Pioneer- en Denon-spelers, met
-  een waarschuwing als de stick een bestandssysteem heeft dat je speler niet leest.
+- **USB-export die de stick heel laat.** Vier mapindelingen, waaronder één voor Pioneer- en
+  Denon-spelers. De stick wordt vooraf gecontroleerd, elk bestand wordt geforceerd
+  weggeschreven, achteraf teruggeteld, en pas losgekoppeld mag je hem eruit halen.
 
 ## Eerlijk over de kwaliteit
 
@@ -242,7 +246,31 @@ terugbewaart. Wachten tot de opname na afloop online staat geeft een exacte knip
 
 ## USB-export
 
-Op het tabblad **Bibliotheek & USB** vink je aan wat mee moet, kies je de schijf en de indeling:
+In de eenvoudige modus zijn dit stap 4 en 5. In de geavanceerde modus doe je het op het
+tabblad **Bibliotheek & USB**: aanvinken wat mee moet, schijf kiezen, indeling kiezen.
+
+### Waarom er een knop "veilig uitwerpen" is
+
+Kopiëren is niet klaar als de voortgangsbalk vol staat. Het besturingssysteem houdt geschreven
+gegevens in een cache, en macOS doet dat bij exFAT- en FAT32-sticks ruim. Wie de stick er dan
+uittrekt, houdt een half geschreven FAT-tabel over: de stick is onleesbaar, of er blijven maar
+een paar nummers van over terwijl de app netjes "veertig gekopieerd" meldde.
+
+FlacDeck doet daarom drie dingen die je niet ziet maar die het verschil maken:
+
+1. Elk gekopieerd bestand wordt met `fsync` naar de stick gedwongen in plaats van in de cache
+   achtergelaten.
+2. Na afloop wordt teruggelezen wat er écht op de stick staat, inclusief de bestandsgrootte.
+   Klopt er iets niet, dan zegt de app dat in plaats van te doen alsof alles goed ging.
+3. **Uitwerpen is een stap, geen keuze.** Het ontkoppelen is de enige harde garantie dat het
+   besturingssysteem zijn laatste buffers wegschrijft. Pas als de koppeling echt weg is, zegt
+   FlacDeck dat je de stick eruit mag halen.
+
+Sluit de app ook niet af tijdens het kopiëren — daar wordt om bevestiging gevraagd.
+
+### Mapindelingen
+
+
 
 | Indeling | Structuur |
 | --- | --- |
@@ -254,7 +282,11 @@ Op het tabblad **Bibliotheek & USB** vink je aan wat mee moet, kies je de schijf
 Aandachtspunten voor dj-spelers:
 
 - **Formatteer de stick als FAT32 of exFAT.** NTFS (Windows) en APFS/HFS+ (Mac) worden niet
-  gelezen. FlacDeck waarschuwt als het dat kan zien.
+  gelezen. FlacDeck controleert dat nu *voordat* er iets gekopieerd wordt, probeert ook echt
+  even te schrijven, en legt uit hoe je de stick opnieuw opmaakt.
+- **Verborgen Mac-bestanden worden opgeruimd.** macOS zet `._Naam.flac`, `.DS_Store` en
+  `.Spotlight-V100` op elke FAT-stick; autoradio's en oudere CDJ's tellen die mee als nummer of
+  slaan erop stuk. FlacDeck haalt ze er af — alleen op een verwisselbare schijf.
 - FlacDeck zet de bestanden en de tags klaar. **Rekordbox of Engine DJ moet er daarna nog
   overheen** om zijn eigen database op de stick te zetten en BPM en toonsoort te analyseren.
   Laat de BPM- en toonsoortvelden dus gerust leeg.

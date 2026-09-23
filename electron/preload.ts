@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   BinaryStatus,
+  DriveCheck,
   DriveInfo,
+  EjectResult,
   ExportLayout,
   ExportRequest,
   ExportResult,
@@ -83,6 +85,10 @@ const api = {
   },
   usb: {
     drives: (): Promise<DriveInfo[]> => ipcRenderer.invoke('usb:drives'),
+    check: (target: string, layout: ExportLayout): Promise<DriveCheck> =>
+      ipcRenderer.invoke('usb:check', target, layout),
+    eject: (target: string): Promise<EjectResult> => ipcRenderer.invoke('usb:eject', target),
+    cleanup: (target: string): Promise<number> => ipcRenderer.invoke('usb:cleanup', target),
     layouts: (): Promise<{ id: ExportLayout; label: string; hint: string }[]> =>
       ipcRenderer.invoke('usb:layouts'),
     size: (paths: string[]): Promise<number> => ipcRenderer.invoke('usb:size', paths),
@@ -103,6 +109,8 @@ const api = {
   },
   app: {
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
+    /** Leeg = klaar om af te sluiten; anders de reden om dat te weigeren. */
+    setBusy: (reason: string): Promise<void> => ipcRenderer.invoke('app:busy', reason),
     platform: process.platform
   }
 }

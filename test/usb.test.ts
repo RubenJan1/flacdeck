@@ -9,7 +9,14 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { ffmpegPath } from '../electron/services/binaries'
-import { exportTracks, layoutOptions, listDrives } from '../electron/services/usb'
+import {
+  checkDrive,
+  cleanupDrive,
+  ejectDrive,
+  exportTracks,
+  layoutOptions,
+  listDrives
+} from '../electron/services/usb'
 
 const work = path.join(os.tmpdir(), 'flacdeck-test', 'usb')
 const srcDir = path.join(work, 'bron')
@@ -123,6 +130,50 @@ async function main(): Promise<void> {
   check('playlist begint met #EXTM3U', m3u.startsWith('#EXTM3U'))
   check('playlist heeft EXTINF met duur', /#EXTINF:2,Sigur Rós - Glósóli/.test(m3u), m3u.split('\n')[1])
   check('playlist gebruikt relatieve paden met /', m3u.includes('Contents/Sigur R'))
+
+  /* ------------------------- terugtellen op de stick ----------------------- */
+
+  check('alle drie teruggevonden op de stick', dj.verified === 3, String(dj.verified))
+  check('niets zoekgeraakt', dj.missing.length === 0, dj.missing.join(' | '))
+
+  // Wat er niet aankwam moet gemeld worden, niet stilletjes als "gekopieerd"
+  // blijven staan: precies de melding die een halfgeschreven stick verraadt.
+  const weg = path.join(djDir, 'Contents', 'AC-DC', 'Back in Black')
+  const voorWeghalen = tree(weg, weg)
+  await fsp.rm(path.join(weg, voorWeghalen[0]), { force: true })
+  const naControle = await exportTracks({
+    paths: [b], target: djDir, layout: 'dj', asciiNames: false,
+    createM3u: false, playlistName: '', overwrite: false
+  })
+  check('een weggehaald bestand wordt opnieuw gekopieerd', naControle.copied === 1, String(naControle.copied))
+
+  /* ---------------------- macOS-rommel en controle vooraf ------------------ */
+
+  const junkDir = path.join(dstDir, 'junk')
+  await fsp.mkdir(path.join(junkDir, '.Spotlight-V100'), { recursive: true })
+  await fsp.writeFile(path.join(junkDir, '._Glosoli.flac'), 'appledouble')
+  await fsp.writeFile(path.join(junkDir, '.DS_Store'), 'finder')
+  await fsp.writeFile(path.join(junkDir, 'desktop.ini'), '[.ShellClassInfo]')
+  // Een gewone map is niet verwisselbaar, dus er hoort niets te gebeuren.
+  const opgeruimd = await cleanupDrive(junkDir)
+  check('ruimt niets op buiten een verwisselbare stick', opgeruimd === 0, String(opgeruimd))
+  check(
+    'laat desktop.ini met rust',
+    fs.existsSync(path.join(junkDir, 'desktop.ini'))
+  )
+
+  const wegCheck = await checkDrive(path.join(dstDir, 'bestaat-niet'), 'dj')
+  check('meldt een stick die er niet is', wegCheck.level === 'block', wegCheck.title)
+  check('geeft er ook bij wat de gebruiker moet doen', Boolean(wegCheck.fix), wegCheck.fix)
+
+  const leegCheck = await checkDrive('', 'dj')
+  check('meldt dat er nog niets gekozen is', leegCheck.level === 'block', leegCheck.title)
+
+  // Uitwerpen mag nooit op een vaste schijf terechtkomen: wie in de
+  // geavanceerde modus een gewone map koos, zou zijn systeemschijf aanbieden.
+  const vast = await ejectDrive(djDir)
+  check('werpt geen vaste schijf uit', vast.ok === false, vast.message)
+  check('legt uit waarom niet', /vaste schijf|niet bij een schijf/.test(vast.message), vast.message)
 
   /* ------------------------- overslaan en opnieuw -------------------------- */
 

@@ -16,6 +16,7 @@ const URL = 'https://www.youtube.com/watch?v=jNQXAC9IVRw'
 const work = path.join(os.tmpdir(), 'flacdeck-test', 'pipeline')
 
 const settings: Settings = {
+  simpleMode: true,
   outputDir: work,
   naming: '{artist} - {title}',
   concurrency: 2,

@@ -340,8 +340,10 @@ export default function Download({ settings, notify, goToQueue }: Props): JSX.El
             )}
 
             <div className="note small" style={{ marginTop: 14 }}>
-              Leeg laten betekent “vanaf het begin” of “tot het eind”. Tijden mogen als{' '}
-              <span className="mono">3:45</span>, <span className="mono">1:02:30</span> of als aantal seconden.
+              Vul de tijden in als minuten en seconden. Begint een nummer na drie minuten en
+              vijfenveertig seconden, zet dan <span className="mono">3</span> bij min en{' '}
+              <span className="mono">45</span> bij sec. Laat je beide vakjes leeg, dan loopt de track vanaf
+              het begin of tot het eind van de video.
             </div>
           </div>
 

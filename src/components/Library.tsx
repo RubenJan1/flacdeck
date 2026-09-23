@@ -1,7 +1,14 @@
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { formatBytes, formatTime } from '../lib/format'
-import type { DriveInfo, ExportLayout, ExportResult, LibraryItem, Settings } from '../../shared/types'
+import type {
+  DriveCheck,
+  DriveInfo,
+  ExportLayout,
+  ExportResult,
+  LibraryItem,
+  Settings
+} from '../../shared/types'
 import type { Toast } from '../App'
 
 interface Props {
@@ -27,6 +34,8 @@ export default function Library({ settings, notify }: Props): JSX.Element {
   const [exporting, setExporting] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0, current: '' })
   const [result, setResult] = useState<ExportResult | null>(null)
+  const [check, setCheck] = useState<DriveCheck | null>(null)
+  const [ejecting, setEjecting] = useState(false)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -77,14 +86,45 @@ export default function Library({ settings, notify }: Props): JSX.Element {
     setSelected((prev) => (prev.size === visible.length ? new Set() : new Set(visible.map((i) => i.path))))
   }
 
+  // Vooraf kijken of deze stick te gebruiken is; pas achteraf waarschuwen
+  // betekent dat er al een half uur gekopieerd is naar iets wat niets leest.
+  useEffect(() => {
+    if (!target) {
+      setCheck(null)
+      return
+    }
+    let current = true
+    void window.api.usb.check(target, layout).then((c) => {
+      if (current) setCheck(c)
+    })
+    return () => {
+      current = false
+    }
+  }, [target, layout])
+
   const drive = drives.find((d) => d.path === target)
   const tooBig = Boolean(drive && drive.freeBytes > 0 && selectedBytes > drive.freeBytes)
+
+  const eject = async (): Promise<void> => {
+    setEjecting(true)
+    try {
+      const res = await window.api.usb.eject(target)
+      notify(res.message, res.ok ? 'ok' : 'err')
+      if (res.ok) {
+        setResult(null)
+        await refreshDrives()
+      }
+    } finally {
+      setEjecting(false)
+    }
+  }
 
   const runExport = async (): Promise<void> => {
     if (!target || !selectedPaths.length) return
     setExporting(true)
     setResult(null)
     setProgress({ done: 0, total: selectedPaths.length, current: '' })
+    void window.api.app.setBusy('FlacDeck is muziek naar de stick aan het kopiëren.')
     try {
       const res = await window.api.usb.exportTracks({
         paths: selectedPaths,
@@ -107,6 +147,7 @@ export default function Library({ settings, notify }: Props): JSX.Element {
     } catch (err) {
       notify((err as Error).message, 'err')
     } finally {
+      void window.api.app.setBusy('')
       setExporting(false)
     }
   }
@@ -303,6 +344,13 @@ export default function Library({ settings, notify }: Props): JSX.Element {
           )}
         </div>
 
+        {check && check.level !== 'ok' && (
+          <div className={'note ' + (check.level === 'block' ? 'err' : 'warn')} style={{ marginTop: 14 }}>
+            <strong>{check.title}</strong> {check.message}
+            {check.fix && <div style={{ marginTop: 6 }}>{check.fix}</div>}
+          </div>
+        )}
+
         {tooBig && (
           <div className="note err" style={{ marginTop: 14 }}>
             De selectie is {formatBytes(selectedBytes)} en er is maar {formatBytes(drive?.freeBytes ?? 0)} vrij.
@@ -339,12 +387,27 @@ export default function Library({ settings, notify }: Props): JSX.Element {
           </div>
         ))}
 
+        {result && (
+          <div className="note warn" style={{ marginTop: 14 }}>
+            Trek de stick er nog niet uit. Koppel hem eerst los, anders staat er straks maar een deel van de
+            muziek op.
+          </div>
+        )}
+
         <div className="row" style={{ marginTop: 16 }}>
           <div className="spacer" />
           <button
+            className="btn"
+            onClick={() => void eject()}
+            disabled={ejecting || !target || exporting}
+            title="Schrijft de laatste gegevens weg en koppelt de stick los"
+          >
+            {ejecting ? 'Bezig…' : 'Stick veilig uitwerpen'}
+          </button>
+          <button
             className="btn primary"
             onClick={() => void runExport()}
-            disabled={exporting || !target || !selectedPaths.length}
+            disabled={exporting || !target || !selectedPaths.length || check?.level === 'block'}
           >
             {exporting ? 'Kopiëren…' : `Kopieer ${selectedPaths.length} bestand(en)`}
           </button>

@@ -14,11 +14,26 @@ import {
 import { queue } from './services/queue'
 import { getSettings, resetSettings, saveSettings } from './services/store'
 import { segmentsFromText } from './services/tracklist'
-import { exportSize, exportTracks, layoutOptions, listDrives } from './services/usb'
+import {
+  checkDrive,
+  cleanupDrive,
+  ejectDrive,
+  exportSize,
+  exportTracks,
+  layoutOptions,
+  listDrives
+} from './services/usb'
 import { playlistUrls, probe } from './services/ytdlp'
-import type { ExportRequest, JobRequest, Settings, TrackMeta } from '../shared/types'
+import type { ExportLayout, ExportRequest, JobRequest, Settings, TrackMeta } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
+
+/**
+ * Staat er werk open dat niet halverwege mag stoppen? Tijdens het kopiëren naar
+ * een stick is afsluiten precies de manier om een halve stick achter te laten,
+ * dus vragen we het dan eerst.
+ */
+let busyReason = ''
 
 function send(channel: string, ...args: unknown[]): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, ...args)
@@ -43,6 +58,27 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+
+  // Afsluiten tijdens het kopiëren laat een stick achter waar de helft op staat.
+  mainWindow.on('close', (event) => {
+    const window = mainWindow
+    if (!busyReason || !window) return
+    event.preventDefault()
+    const response = dialog.showMessageBoxSync(window, {
+      type: 'warning',
+      buttons: ['Laat openstaan', 'Toch afsluiten'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'FlacDeck is nog bezig',
+      message: busyReason,
+      detail:
+        'Sluit je nu af, dan staat er straks maar een deel van de muziek op de stick. Wacht tot het klaar is.'
+    })
+    if (response === 1) {
+      busyReason = ''
+      window.destroy()
+    }
+  })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
@@ -131,6 +167,9 @@ function registerIpc(): void {
   ipcMain.handle('library:play', (_e, file: string) => shell.openPath(file))
 
   ipcMain.handle('usb:drives', () => listDrives())
+  ipcMain.handle('usb:check', (_e, target: string, layout: ExportLayout) => checkDrive(target, layout))
+  ipcMain.handle('usb:eject', (_e, target: string) => ejectDrive(target))
+  ipcMain.handle('usb:cleanup', (_e, target: string) => cleanupDrive(target))
   ipcMain.handle('usb:layouts', () => layoutOptions())
   ipcMain.handle('usb:size', (_e, paths: string[]) => exportSize(paths))
   ipcMain.handle('usb:export', (_e, req: ExportRequest) => {
@@ -163,6 +202,9 @@ function registerIpc(): void {
   })
   ipcMain.handle('shell:open-path', (_e, p: string) => shell.openPath(p))
   ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.handle('app:busy', (_e, reason: string) => {
+    busyReason = reason
+  })
 }
 
 /* -------------------------------- opstart -------------------------------- */

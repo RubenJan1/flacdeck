@@ -143,6 +143,29 @@ export interface ExportResult {
   bytes: number
   playlistPath: string | null
   warnings: string[]
+  /** Teruggelezen van de stick nadat alles geschreven was. */
+  verified: number
+  /** Bestanden die na het schrijven niet terug te vinden waren. */
+  missing: string[]
+  /** Opgeruimde verborgen systeembestanden van macOS/Windows. */
+  junkRemoved: number
+}
+
+/** Uitkomst van de controle vooraf: mag er naar deze stick geschreven worden? */
+export interface DriveCheck {
+  level: 'ok' | 'warn' | 'block'
+  /** Korte kop in mensentaal. */
+  title: string
+  /** Wat er aan de hand is. */
+  message: string
+  /** Wat de gebruiker moet doen. Leeg als er niets te doen valt. */
+  fix: string
+}
+
+export interface EjectResult {
+  ok: boolean
+  /** Altijd ingevuld: wat de gebruiker nu wel of juist niet mag doen. */
+  message: string
 }
 
 export interface DriveInfo {
@@ -155,6 +178,8 @@ export interface DriveInfo {
 }
 
 export interface Settings {
+  /** Eenvoudige modus: één scherm dat stap voor stap leidt. Standaard aan. */
+  simpleMode: boolean
   outputDir: string
   naming: string
   concurrency: number

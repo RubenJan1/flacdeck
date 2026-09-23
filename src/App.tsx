@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Download from './components/Download'
+import Simple from './components/Simple'
 import Queue from './components/Queue'
 import Library from './components/Library'
 import SettingsPanel from './components/SettingsPanel'
@@ -104,6 +105,25 @@ export default function App(): JSX.Element {
 
   const needsSetup = binaries !== null && !binaries.ytdlp.ok
 
+  // De eenvoudige modus is een eigen scherm zonder tabbladen: één ding tegelijk,
+  // in de volgorde waarin het moet gebeuren.
+  if (settings.simpleMode && !needsSetup) {
+    return (
+      <div className="app simpel">
+        <main className="main">
+          <Simple
+            settings={settings}
+            jobs={jobs}
+            notify={notify}
+            onSettings={(patch) => void updateSettings(patch)}
+            onAdvanced={() => void updateSettings({ simpleMode: false })}
+          />
+        </main>
+        {toast && <div className={'toast ' + toast.kind}>{toast.text}</div>}
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -133,6 +153,12 @@ export default function App(): JSX.Element {
         ))}
 
         <div style={{ marginTop: 'auto' }}>
+          <button className="nav-item" onClick={() => void updateSettings({ simpleMode: true })}>
+            <span aria-hidden style={{ width: 14, textAlign: 'center', opacity: 0.8 }}>
+              ◎
+            </span>
+            Eenvoudige modus
+          </button>
           <UpdateBar status={update} />
         </div>
 
