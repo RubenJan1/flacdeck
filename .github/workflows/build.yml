@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -102,6 +102,10 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    # Alleen deze job mag schrijven, en alleen met GitHub's eigen gh-commando;
+    # geen actie van derden die met dat token aan de releases zit.
+    permissions:
+      contents: write
 
     steps:
       - name: Installers ophalen
@@ -133,9 +137,11 @@ jobs:
           ls -l release
 
       - name: Release maken
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ env.versie }}
-          files: release/*
-          fail_on_unmatched_files: true
-          make_latest: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$versie" \
+            --verify-tag \
+            --latest
