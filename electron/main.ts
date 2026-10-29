@@ -21,7 +21,8 @@ import {
   exportSize,
   exportTracks,
   layoutOptions,
-  listDrives
+  listDrives,
+  listUnreadable
 } from './services/usb'
 import { playlistUrls, probe } from './services/ytdlp'
 import type { ExportLayout, ExportRequest, JobRequest, Settings, TrackMeta } from '../shared/types'
@@ -167,6 +168,7 @@ function registerIpc(): void {
   ipcMain.handle('library:play', (_e, file: string) => shell.openPath(file))
 
   ipcMain.handle('usb:drives', () => listDrives())
+  ipcMain.handle('usb:unreadable', () => listUnreadable())
   ipcMain.handle('usb:check', (_e, target: string, layout: ExportLayout) => checkDrive(target, layout))
   ipcMain.handle('usb:eject', (_e, target: string) => ejectDrive(target))
   ipcMain.handle('usb:cleanup', (_e, target: string) => cleanupDrive(target))

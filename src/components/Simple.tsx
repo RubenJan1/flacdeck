@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import SegmentTable from './SegmentTable'
+import UnreadableSticks from './UnreadableSticks'
 import { formatBytes, formatTime, isProbablyUrl } from '../lib/format'
 import {
   emptyMeta,
@@ -13,7 +14,8 @@ import {
   type ProbeResult,
   type Segment,
   type Settings,
-  type TrackMeta
+  type TrackMeta,
+  type UnreadableStick
 } from '../../shared/types'
 import type { Toast } from '../App'
 
@@ -63,6 +65,7 @@ export default function Simple({ settings, jobs, notify, onSettings, onAdvanced 
   const [library, setLibrary] = useState<LibraryItem[]>([])
   const [alles, setAlles] = useState(false)
   const [drives, setDrives] = useState<DriveInfo[]>([])
+  const [dicht, setDicht] = useState<UnreadableStick[]>([])
   const [target, setTarget] = useState('')
   const [check, setCheck] = useState<DriveCheck | null>(null)
   const [layout, setLayout] = useState<ExportLayout>(
@@ -189,6 +192,9 @@ export default function Simple({ settings, jobs, notify, onSettings, onAdvanced 
       if (huidig && gevonden.some((d) => d.path === huidig)) return huidig
       return gevonden.find((d) => d.removable)?.path ?? ''
     })
+    // Alleen zoeken naar een stick die dicht zit als er geen bruikbare is: dat is
+    // precies het moment waarop iemand denkt dat de stick "niet herkend" wordt.
+    setDicht(gevonden.some((d) => d.removable) ? [] : await window.api.usb.unreadable())
   }, [])
 
   const laadBibliotheek = useCallback(async () => {
@@ -506,10 +512,14 @@ export default function Simple({ settings, jobs, notify, onSettings, onAdvanced 
               </button>
             ))
           ) : (
-            <div className="note wiz-note">
-              Nog geen stick gevonden. Steek hem in een USB-poort; hij verschijnt vanzelf.
-            </div>
+            !dicht.length && (
+              <div className="note wiz-note">
+                Nog geen stick gevonden. Steek hem in een USB-poort; hij verschijnt vanzelf.
+              </div>
+            )
           )}
+
+          <UnreadableSticks sticks={dicht} className="wiz-note" />
 
           {check && check.level !== 'ok' && (
             <div className={'note ' + (check.level === 'block' ? 'err' : 'warn') + ' wiz-note'}>

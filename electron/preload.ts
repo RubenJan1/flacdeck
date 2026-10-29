@@ -15,6 +15,7 @@ import type {
   Segment,
   Settings,
   TrackMeta,
+  UnreadableStick,
   UpdateStatus
 } from '../shared/types'
 
@@ -85,6 +86,7 @@ const api = {
   },
   usb: {
     drives: (): Promise<DriveInfo[]> => ipcRenderer.invoke('usb:drives'),
+    unreadable: (): Promise<UnreadableStick[]> => ipcRenderer.invoke('usb:unreadable'),
     check: (target: string, layout: ExportLayout): Promise<DriveCheck> =>
       ipcRenderer.invoke('usb:check', target, layout),
     eject: (target: string): Promise<EjectResult> => ipcRenderer.invoke('usb:eject', target),

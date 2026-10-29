@@ -10,6 +10,27 @@ interface Props {
  * melden valt — bij 'actueel' of tijdens het zoeken hoeft niemand iets te zien.
  */
 export default function UpdateBar({ status }: Props): JSX.Element | null {
+  // macOS: de app kan zichzelf niet vervangen, dus de stappen uitschrijven.
+  if (status.state === 'beschikbaar' && status.downloadUrl) {
+    return (
+      <div className="update-bar">
+        <div className="update-title">Versie {status.version} is er</div>
+        <ol className="update-steps">
+          <li>Klik op Downloaden.</li>
+          <li>Sluit FlacDeck af.</li>
+          <li>Open het gedownloade bestand en sleep FlacDeck naar Programma’s. Kies Vervang.</li>
+        </ol>
+        <button
+          className="btn primary sm"
+          style={{ width: '100%', marginTop: 7 }}
+          onClick={() => void window.api.shell.openExternal(status.downloadUrl)}
+        >
+          Downloaden
+        </button>
+      </div>
+    )
+  }
+
   if (status.state === 'beschikbaar') {
     return (
       <div className="update-bar">

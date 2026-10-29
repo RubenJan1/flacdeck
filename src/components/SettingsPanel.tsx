@@ -270,7 +270,11 @@ export default function SettingsPanel({
                 .check()
                 .then((s) => {
                   if (s.state === 'actueel') notify('Je hebt de nieuwste versie.', 'ok')
-                  else if (s.state === 'beschikbaar') notify('Versie ' + s.version + ' is beschikbaar.', 'ok')
+                  else if (s.state === 'beschikbaar')
+                    notify(
+                      'Versie ' + s.version + ' is beschikbaar.' + (s.downloadUrl ? ' Linksonder staat hoe je hem installeert.' : ''),
+                      'ok'
+                    )
                   else if (s.state === 'uit') notify('Bijwerken werkt alleen in de geïnstalleerde app.', 'info')
                   else if (s.state === 'fout') notify('Zoeken mislukt: ' + s.error, 'err')
                 })

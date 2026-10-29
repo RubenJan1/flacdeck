@@ -14,7 +14,8 @@ import {
   type ExportLayout,
   type ExportRequest,
   type ExportResult,
-  type TrackMeta
+  type TrackMeta,
+  type UnreadableStick
 } from '../../shared/types'
 
 const execFileAsync = promisify(execFile)
@@ -83,6 +84,212 @@ export async function listDrives(): Promise<DriveInfo[]> {
   try {
     const drives = process.platform === 'win32' ? await windowsDrives() : await macDrives()
     return drives.sort((a, b) => Number(b.removable) - Number(a.removable) || a.path.localeCompare(b.path))
+  } catch {
+    return []
+  }
+}
+
+/* -------------------- sticks die er wel zijn, maar dicht ------------------- */
+
+/**
+ * Opmaakadvies. FAT32 en niet exFAT: oudere Pioneer-spelers en veel autoradio's
+ * lezen geen exFAT, en een FLAC-nummer komt nooit in de buurt van de 4 GB die
+ * FAT32 per bestand toestaat. Master Boot Record om dezelfde reden.
+ */
+const MAC_STEPS =
+  'Open Schijfhulpprogramma (Programma’s › Hulpprogramma’s). Kies in het menu Weergave › Toon alle apparaten, klik links op de bovenste regel van de stick en dan op Wissen. Kies bij Structuur “MS-DOS (FAT)” en bij Schema “Master Boot Record”, en klik op Wis.'
+const WINDOWS_EXPLORER_STEPS =
+  'Klik in Verkenner met de rechtermuisknop op de stick en kies Formatteren. Zet Bestandssysteem op FAT32 (staat dat er niet bij, kies dan exFAT) en klik op Starten.'
+const WINDOWS_DISKMGMT_STEPS =
+  'Klik met de rechtermuisknop op de Startknop en kies Schijfbeheer. Klik met de rechtermuisknop op het blok van de stick, kies Volume verwijderen, en daarna Nieuw eenvoudig volume met bestandssysteem FAT32.'
+const ERASE_WARNING = 'Let op: alles wat er nu op staat gaat weg.'
+
+// Partitietypes die alleen een Mac leest: APFS en Mac OS Extended (HFS+).
+const MAC_GPT_TYPES = ['7c3457ef-0000-11aa-aa11-00306543ecac', '48465300-0000-11aa-aa11-00306543ecac']
+const MAC_MBR_TYPE = 175
+
+// Indelingen die een Mac gewoon opent. Staat zo'n stick er zonder koppelpunt,
+// dan is hij uitgeworpen of beschadigd.
+const MAC_MOUNTABLE = [
+  'microsoft basic data',
+  'dos_fat_12',
+  'dos_fat_16',
+  'dos_fat_32',
+  'windows_fat_16',
+  'windows_fat_32',
+  'windows_ntfs',
+  'exfat',
+  'apple_hfs'
+]
+
+type StickText = Pick<UnreadableStick, 'title' | 'message' | 'fix'>
+
+const WINDOWS_TEXT: Record<'mac' | 'leeg' | 'onbekend', StickText> = {
+  mac: {
+    title: 'Deze stick staat in Mac-formaat',
+    message:
+      'De stick zit erin, maar is op een Mac opgemaakt. Windows kan hem daardoor niet openen, en een DJ-speler of autoradio ook niet.',
+    fix:
+      'Het makkelijkst gaat het op de Mac. ' +
+      MAC_STEPS +
+      ' Geen Mac bij de hand? ' +
+      WINDOWS_DISKMGMT_STEPS +
+      ' ' +
+      ERASE_WARNING
+  },
+  leeg: {
+    title: 'Deze stick is nog niet opgemaakt',
+    message: 'De stick zit erin, maar er staat nog geen indeling op. Windows kan er daardoor niets mee.',
+    fix:
+      'Klik met de rechtermuisknop op de Startknop en kies Schijfbeheer. Klik met de rechtermuisknop op het blok “Niet-toegewezen” van de stick en kies Nieuw eenvoudig volume, met bestandssysteem FAT32.'
+  },
+  onbekend: {
+    title: 'Windows kan deze stick niet openen',
+    message:
+      'De stick zit erin, maar Windows herkent de indeling niet. Hij komt misschien van een ander apparaat, of is beschadigd.',
+    fix:
+      'Staan er geen bestanden op die je nog nodig hebt, maak hem dan opnieuw op. ' +
+      WINDOWS_DISKMGMT_STEPS +
+      ' ' +
+      ERASE_WARNING
+  }
+}
+
+const MAC_TEXT: Record<'leeg' | 'uitgeworpen' | 'onbekend', StickText> = {
+  leeg: {
+    title: 'Deze stick is nog niet opgemaakt',
+    message: 'De stick zit erin, maar er staat nog geen indeling op. De Mac kan er daardoor niets mee.',
+    fix: MAC_STEPS
+  },
+  uitgeworpen: {
+    title: 'De stick zit erin, maar is losgekoppeld',
+    message: 'De Mac heeft de stick uitgeworpen, of kon hem niet openen.',
+    fix:
+      'Trek de stick eruit en steek hem er opnieuw in. Verschijnt hij dan nog steeds niet, dan is hij beschadigd en moet hij opnieuw opgemaakt worden. ' +
+      MAC_STEPS +
+      ' ' +
+      ERASE_WARNING
+  },
+  onbekend: {
+    title: 'De Mac kan deze stick niet openen',
+    message:
+      'De stick zit erin, maar de Mac herkent de indeling niet. Hij komt misschien van een ander apparaat, of is beschadigd.',
+    fix:
+      'Staan er geen bestanden op die je nog nodig hebt, maak hem dan opnieuw op. ' + MAC_STEPS + ' ' + ERASE_WARNING
+  }
+}
+
+function records(value: unknown): Record<string, unknown>[] {
+  const list = Array.isArray(value) ? value : value ? [value] : []
+  return list.filter((r): r is Record<string, unknown> => Boolean(r) && typeof r === 'object')
+}
+
+/**
+ * Uit de USB-schijven die Windows ziet, de sticks zonder bruikbare schijfletter.
+ * Verwacht per schijf { Name, Size, Parts: [{ Letter, Gpt, Mbr, Fs }] }.
+ */
+export function parseWindowsUnreadable(rows: unknown): UnreadableStick[] {
+  const out: UnreadableStick[] = []
+  for (const disk of records(rows)) {
+    const parts = records(disk.Parts).map((p) => ({
+      // Een partitie zonder letter geeft PowerShell door als het teken \0.
+      letter: String(p.Letter ?? '').replace(/[^A-Za-z]/g, ''),
+      gpt: String(p.Gpt ?? '').replace(/[{}]/g, '').toLowerCase(),
+      mbr: Number(p.Mbr ?? 0),
+      fs: String(p.Fs ?? '')
+    }))
+    if (parts.some((p) => p.letter && p.fs)) continue
+
+    const kind = !parts.length
+      ? 'leeg'
+      : parts.some((p) => MAC_GPT_TYPES.includes(p.gpt) || p.mbr === MAC_MBR_TYPE)
+        ? 'mac'
+        : 'onbekend'
+    out.push({
+      name: String(disk.Name ?? '').trim() || 'USB-stick',
+      totalBytes: Number(disk.Size ?? 0),
+      kind,
+      ...WINDOWS_TEXT[kind]
+    })
+  }
+  return out
+}
+
+/**
+ * Uit `diskutil list -plist external physical` (als JSON) de sticks die nergens
+ * aangekoppeld zijn. `name` is hier nog het apparaat, zoals disk4.
+ */
+export function parseMacUnreadable(list: unknown): UnreadableStick[] {
+  const root = records(list)[0]
+  const out: UnreadableStick[] = []
+  for (const disk of records(root?.AllDisksAndPartitions)) {
+    const parts = records(disk.Partitions).filter((p) => String(p.Content ?? '') !== 'EFI')
+    const contents = [disk, ...parts].map((d) => String(d.Content ?? '').toLowerCase())
+    if (Number(disk.Size ?? 0) <= 0) continue
+    if ([disk, ...parts].some((d) => d.MountPoint)) continue
+    // APFS koppelt de Mac aan via een eigen container-schijf; die staat in
+    // /Volumes en wordt daar door checkDrive afgehandeld.
+    if (contents.includes('apple_apfs')) continue
+
+    const kind = contents.some((c) => MAC_MOUNTABLE.includes(c))
+      ? 'uitgeworpen'
+      : !parts.length
+        ? 'leeg'
+        : 'onbekend'
+    out.push({
+      name: String(disk.DeviceIdentifier ?? ''),
+      totalBytes: Number(disk.Size ?? 0),
+      kind,
+      ...MAC_TEXT[kind]
+    })
+  }
+  return out
+}
+
+async function windowsUnreadable(): Promise<UnreadableStick[]> {
+  const script =
+    '$out = @(); ' +
+    "foreach ($d in @(Get-Disk | Where-Object { $_.BusType -eq 'USB' -and $_.Size -gt 0 -and $_.OperationalStatus -eq 'Online' })) { " +
+    '$parts = @(Get-Partition -DiskNumber $d.Number -ErrorAction SilentlyContinue | ForEach-Object { ' +
+    '$v = Get-Volume -Partition $_ -ErrorAction SilentlyContinue; ' +
+    '[pscustomobject]@{ Letter = [string]$_.DriveLetter; Gpt = [string]$_.GptType; Mbr = [string]$_.MbrType; Fs = [string]$v.FileSystem } }); ' +
+    '$out += [pscustomobject]@{ Name = $d.FriendlyName; Size = $d.Size; Parts = $parts } }; ' +
+    'ConvertTo-Json -InputObject $out -Depth 4 -Compress'
+  const { stdout } = await execFileAsync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', script],
+    { windowsHide: true, timeout: 20000, maxBuffer: 4 * 1024 * 1024 }
+  )
+  return parseWindowsUnreadable(JSON.parse(stdout.trim() || '[]'))
+}
+
+async function macUnreadable(): Promise<UnreadableStick[]> {
+  const { stdout } = await execFileAsync(
+    '/bin/sh',
+    ['-c', 'diskutil list -plist external physical | plutil -convert json -o - -'],
+    { timeout: 15000, maxBuffer: 4 * 1024 * 1024 }
+  )
+  const found = parseMacUnreadable(JSON.parse(stdout.trim() || '{}'))
+  for (const stick of found) {
+    try {
+      const info = await execFileAsync('diskutil', ['info', '-plist', stick.name], { timeout: 15000 })
+      const media = /<key>MediaName<\/key>\s*<string>([^<]*)<\/string>/.exec(info.stdout)?.[1]?.trim()
+      stick.name = media || 'USB-stick'
+    } catch {
+      stick.name = 'USB-stick'
+    }
+  }
+  return found
+}
+
+/**
+ * Sticks die wel in de computer zitten, maar niet in listDrives verschijnen
+ * omdat het systeem ze niet kan openen. Zonder deze melding ziet de gebruiker
+ * alleen dat er "niets" is, en blijft hij de stick er in en uit steken.
+ */
+export async function listUnreadable(): Promise<UnreadableStick[]> {
+  try {
+    return process.platform === 'win32' ? await windowsUnreadable() : await macUnreadable()
   } catch {
     return []
   }
@@ -217,11 +424,11 @@ function fsWarnings(target: string, filesystem: string, layout: ExportLayout): s
   if (layout === 'dj') {
     if (fsName.includes('NTFS')) {
       warnings.push(
-        'De stick is NTFS. Pioneer- en Denon-spelers lezen alleen FAT32 of exFAT — formatteer de stick opnieuw als exFAT.'
+        'De stick is NTFS. Pioneer- en Denon-spelers lezen alleen FAT32 of exFAT — formatteer de stick opnieuw als FAT32.'
       )
     } else if (fsName.includes('APFS') || fsName.includes('HFS')) {
       warnings.push(
-        'De stick is ' + filesystem + ' (Mac-formaat). DJ-spelers lezen dat niet — formatteer als exFAT of FAT32 (MS-DOS).'
+        'De stick is ' + filesystem + ' (Mac-formaat). DJ-spelers lezen dat niet — formatteer als FAT32 (MS-DOS).'
       )
     } else if (!fsName) {
       warnings.push('Bestandssysteem onbekend. Zorg dat de stick FAT32 of exFAT is, anders leest de speler hem niet.')
@@ -234,9 +441,7 @@ function fsWarnings(target: string, filesystem: string, layout: ExportLayout): s
 /* --------------------------- controle vooraf ----------------------------- */
 
 const FORMAT_HELP =
-  process.platform === 'darwin'
-    ? 'Open Schijfhulpprogramma (Programma’s › Hulpprogramma’s), kies de stick in de linkerkolom, klik op Wissen en kies bij Structuur de optie ExFAT. Let op: alles wat er nu op staat gaat weg.'
-    : 'Klik in Verkenner met de rechtermuisknop op de stick, kies Formatteren en zet Bestandssysteem op exFAT. Let op: alles wat er nu op staat gaat weg.'
+  (process.platform === 'darwin' ? MAC_STEPS : WINDOWS_EXPLORER_STEPS) + ' ' + ERASE_WARNING
 
 /**
  * Kijkt vóór het kopiëren of deze stick bruikbaar is. Eerst alles kopiëren en
@@ -311,7 +516,7 @@ export async function checkDrive(target: string, layout: ExportLayout): Promise<
       level: 'warn',
       title: 'Onbekend formaat',
       message: 'FlacDeck kan niet vaststellen hoe deze stick is opgemaakt.',
-      fix: 'Werkt de stick straks niet in de speler, maak hem dan opnieuw op als exFAT.'
+      fix: 'Werkt de stick straks niet in de speler, maak hem dan opnieuw op als FAT32. ' + FORMAT_HELP
     }
   }
 

@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import UnreadableSticks from './UnreadableSticks'
 import { formatBytes, formatTime } from '../lib/format'
 import type {
   DriveCheck,
@@ -7,7 +8,8 @@ import type {
   ExportLayout,
   ExportResult,
   LibraryItem,
-  Settings
+  Settings,
+  UnreadableStick
 } from '../../shared/types'
 import type { Toast } from '../App'
 
@@ -23,6 +25,7 @@ export default function Library({ settings, notify }: Props): JSX.Element {
   const [filter, setFilter] = useState('')
 
   const [drives, setDrives] = useState<DriveInfo[]>([])
+  const [unreadable, setUnreadable] = useState<UnreadableStick[]>([])
   const [target, setTarget] = useState('')
   const [layouts, setLayouts] = useState<{ id: ExportLayout; label: string; hint: string }[]>([])
   const [layout, setLayout] = useState<ExportLayout>(settings.usb.layout)
@@ -50,6 +53,7 @@ export default function Library({ settings, notify }: Props): JSX.Element {
     const found = await window.api.usb.drives()
     setDrives(found)
     setTarget((current) => (current && found.some((d) => d.path === current) ? current : found.find((d) => d.removable)?.path ?? ''))
+    setUnreadable(found.some((d) => d.removable) ? [] : await window.api.usb.unreadable())
   }, [])
 
   useEffect(() => {
@@ -293,6 +297,8 @@ export default function Library({ settings, notify }: Props): JSX.Element {
         ) : (
           <div className="note">Geen schijven gevonden. Sluit een stick aan en klik op “Schijven verversen”.</div>
         )}
+
+        <UnreadableSticks sticks={unreadable} />
 
         {target && !drives.some((d) => d.path === target) && (
           <div className="note small mono" style={{ marginBottom: 10 }}>

@@ -87,9 +87,15 @@ Volgen kan onder het tabblad **Actions**. Is het klaar, dan staat de release op
 ontvanger downloadt de `.dmg`, sleept FlacDeck naar Programma's, en klaar. Verder hoeft
 niemand iets te doen behalve de sleutel plakken die jij hebt gestuurd.
 
-**Bijwerken gaat vanzelf.** De app kijkt bij het starten of er een nieuwere versie is en meldt
-dat in de zijbalk. Eén klik downloadt hem, nog een klik herstart de app. Jij hoeft dus nooit
-meer een installer rond te sturen — alleen `npm version patch` en pushen.
+**Bijwerken.** De app kijkt bij het starten of er een nieuwere versie is en meldt dat in de
+zijbalk van de geavanceerde modus. Jij hoeft dus nooit meer een installer rond te sturen —
+alleen `npm version patch` en pushen.
+
+- **Windows:** één klik downloadt de nieuwe versie, nog een klik herstart de app.
+- **macOS:** de app kan zichzelf niet vervangen, omdat hij niet ondertekend is. De zijbalk geeft
+  dan een knop die de juiste `.dmg` voor die Mac downloadt, met de drie stappen erbij: FlacDeck
+  afsluiten, de dmg openen, FlacDeck naar Programma's slepen en **Vervang** kiezen. Daarna
+  vraagt macOS de eerste keer weer om rechtermuisknop → **Open**.
 
 ### De macOS-versie zelf bouwen (alternatief)
 
@@ -281,9 +287,29 @@ Sluit de app ook niet af tijdens het kopiëren — daar wordt om bevestiging gev
 
 Aandachtspunten voor dj-spelers:
 
-- **Formatteer de stick als FAT32 of exFAT.** NTFS (Windows) en APFS/HFS+ (Mac) worden niet
-  gelezen. FlacDeck controleert dat nu *voordat* er iets gekopieerd wordt, probeert ook echt
-  even te schrijven, en legt uit hoe je de stick opnieuw opmaakt.
+- **Formatteer de stick als FAT32.** NTFS (Windows) en APFS/HFS+ (Mac) worden niet gelezen, en
+  exFAT ook niet door oudere Pioneer-spelers en veel autoradio's. FlacDeck controleert dat
+  *voordat* er iets gekopieerd wordt, probeert ook echt even te schrijven, en legt uit hoe je de
+  stick opnieuw opmaakt.
+- **Een stick die erin zit maar niet verschijnt** wordt ook gemeld. Windows geeft een stick in
+  Mac-formaat geen schijfletter, en de Mac koppelt een beschadigde stick niet aan. FlacDeck kijkt
+  dan rechtstreeks naar de USB-apparaten en zegt wat er aan de hand is.
+
+### Een stick goed opmaken op de Mac
+
+Schijfhulpprogramma (Programma's › Hulpprogramma's) → menu **Weergave › Toon alle apparaten** →
+klik links op de **bovenste** regel van de stick (het apparaat, niet het volume eronder) →
+**Wissen**:
+
+| Veld | Kies |
+| --- | --- |
+| Naam | bijvoorbeeld `MUZIEK` |
+| Structuur | **MS-DOS (FAT)** — dat is FAT32 |
+| Schema | **Master Boot Record** |
+
+Kies je het volume in plaats van het apparaat, dan ontbreekt het veld Schema en blijft de oude
+indeling staan. Laat je Structuur op de standaard staan, dan wordt het APFS — en dan zien
+Windows, dj-spelers en autoradio's de stick niet meer.
 - **Verborgen Mac-bestanden worden opgeruimd.** macOS zet `._Naam.flac`, `.DS_Store` en
   `.Spotlight-V100` op elke FAT-stick; autoradio's en oudere CDJ's tellen die mee als nummer of
   slaan erop stuk. FlacDeck haalt ze er af — alleen op een verwisselbare schijf.

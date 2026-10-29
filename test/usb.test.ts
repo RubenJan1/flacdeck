@@ -15,7 +15,9 @@ import {
   ejectDrive,
   exportTracks,
   layoutOptions,
-  listDrives
+  listDrives,
+  parseMacUnreadable,
+  parseWindowsUnreadable
 } from '../electron/services/usb'
 
 const work = path.join(os.tmpdir(), 'flacdeck-test', 'usb')
@@ -242,6 +244,68 @@ async function main(): Promise<void> {
   } else {
     console.log('ok    (geen NTFS-schijf om de waarschuwing op te testen)')
   }
+
+  /* ------------------- sticks die erin zitten maar dicht ------------------- */
+
+  // Zoals Windows een op de Mac gewiste stick ziet: één APFS-partitie, geen letter.
+  const winMac = parseWindowsUnreadable([
+    {
+      Name: 'HEMA_16G HEMA_16GB',
+      Size: 15525216256,
+      Parts: [{ Letter: '\u0000', Gpt: '{7c3457ef-0000-11aa-aa11-00306543ecac}', Mbr: '', Fs: '' }]
+    }
+  ])
+  check('Windows: Mac-stick gemeld', winMac.length === 1 && winMac[0].kind === 'mac', JSON.stringify(winMac))
+  check('Windows: Mac-stick krijgt uitleg voor de Mac', /Schijfhulpprogramma/.test(winMac[0]?.fix ?? ''))
+
+  const winOk = parseWindowsUnreadable([
+    { Name: 'SanDisk', Size: 32e9, Parts: [{ Letter: 'E', Gpt: '', Mbr: '12', Fs: 'FAT32' }] }
+  ])
+  check('Windows: leesbare stick niet gemeld', winOk.length === 0, JSON.stringify(winOk))
+
+  const winLeeg = parseWindowsUnreadable({ Name: 'Kingston', Size: 8e9, Parts: [] })
+  check('Windows: lege stick gemeld als niet opgemaakt', winLeeg[0]?.kind === 'leeg', JSON.stringify(winLeeg))
+
+  const winHfsMbr = parseWindowsUnreadable([
+    { Name: 'Oud', Size: 4e9, Parts: [{ Letter: '', Gpt: '', Mbr: '175', Fs: '' }] }
+  ])
+  check('Windows: HFS+ op MBR is ook Mac-formaat', winHfsMbr[0]?.kind === 'mac', JSON.stringify(winHfsMbr))
+
+  const winExt = parseWindowsUnreadable([
+    { Name: 'Raspberry', Size: 16e9, Parts: [{ Letter: '', Gpt: '{0fc63daf-8483-4772-8e79-3d69d8477de4}', Mbr: '', Fs: '' }] }
+  ])
+  check('Windows: Linux-stick is onbekend', winExt[0]?.kind === 'onbekend', JSON.stringify(winExt))
+
+  // diskutil list -plist external physical, omgezet naar JSON.
+  const macLijst = parseMacUnreadable({
+    AllDisksAndPartitions: [
+      {
+        DeviceIdentifier: 'disk4', Size: 16e9, Content: 'FDisk_partition_scheme',
+        Partitions: [{ DeviceIdentifier: 'disk4s1', Content: 'DOS_FAT_32', MountPoint: '/Volumes/MUZIEK' }]
+      },
+      {
+        DeviceIdentifier: 'disk5', Size: 16e9, Content: 'GUID_partition_scheme',
+        Partitions: [{ Content: 'EFI' }, { DeviceIdentifier: 'disk5s2', Content: 'Apple_APFS' }]
+      },
+      {
+        DeviceIdentifier: 'disk6', Size: 8e9, Content: 'FDisk_partition_scheme',
+        Partitions: [{ DeviceIdentifier: 'disk6s1', Content: 'Windows_FAT_32' }]
+      },
+      { DeviceIdentifier: 'disk7', Size: 8e9, Content: '', Partitions: [] },
+      {
+        DeviceIdentifier: 'disk8', Size: 16e9, Content: 'GUID_partition_scheme',
+        Partitions: [{ Content: 'EFI' }, { DeviceIdentifier: 'disk8s2', Content: 'Linux Filesystem' }]
+      },
+      { DeviceIdentifier: 'disk9', Size: 0, Content: '' }
+    ]
+  })
+  const macSoort = Object.fromEntries(macLijst.map((s) => [s.name, s.kind]))
+  check('Mac: aangekoppelde stick niet gemeld', !('disk4' in macSoort), JSON.stringify(macSoort))
+  check('Mac: APFS laat hij aan checkDrive over', !('disk5' in macSoort), JSON.stringify(macSoort))
+  check('Mac: FAT-stick zonder koppeling is uitgeworpen', macSoort.disk6 === 'uitgeworpen', JSON.stringify(macSoort))
+  check('Mac: stick zonder indeling is niet opgemaakt', macSoort.disk7 === 'leeg', JSON.stringify(macSoort))
+  check('Mac: Linux-stick is onbekend', macSoort.disk8 === 'onbekend', JSON.stringify(macSoort))
+  check('Mac: lege kaartlezer niet gemeld', !('disk9' in macSoort), JSON.stringify(macSoort))
 
   await fsp.rm(work, { recursive: true, force: true })
 }

@@ -701,6 +701,14 @@ label.field > span {
   color: var(--accent);
 }
 
+.update-steps {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text);
+}
+
 .gate {
   height: 100%;
   display: grid;

@@ -177,6 +177,21 @@ export interface DriveInfo {
   removable: boolean
 }
 
+/**
+ * Een stick die wel in de computer zit, maar die het systeem niet kan openen.
+ * Hij krijgt dan geen schijfletter of map, en zonder deze melding zou de
+ * gebruiker alleen zien dat er "niets" is.
+ */
+export interface UnreadableStick {
+  name: string
+  totalBytes: number
+  /** mac = Mac-formaat op Windows, leeg = nooit opgemaakt, uitgeworpen = wel leesbaar maar losgekoppeld. */
+  kind: 'mac' | 'leeg' | 'uitgeworpen' | 'onbekend'
+  title: string
+  message: string
+  fix: string
+}
+
 export interface Settings {
   /** Eenvoudige modus: één scherm dat stap voor stap leidt. Standaard aan. */
   simpleMode: boolean
@@ -220,6 +235,11 @@ export interface UpdateStatus {
   notes: string
   progress: number
   error: string
+  /**
+   * Leeg = de app werkt zichzelf bij. Anders moet de gebruiker de installer zelf
+   * ophalen via deze link; dat is op macOS zo, omdat de app niet ondertekend is.
+   */
+  downloadUrl: string
 }
 
 export interface LicenceInfo {

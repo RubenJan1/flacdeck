@@ -37,7 +37,8 @@ export default function App(): JSX.Element {
     version: '',
     notes: '',
     progress: 0,
-    error: ''
+    error: '',
+    downloadUrl: ''
   })
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 

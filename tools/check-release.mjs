@@ -42,6 +42,19 @@ if (!uitPkg) {
   )
 }
 
+// Mac-gebruikers krijgen een directe downloadlink uit updater.ts; wijst die
+// naar een andere repo, dan downloaden ze een 404.
+const updater = lees('electron/services/updater.ts')
+const uitUpdater = updater.match(/github\.com\/([^/]+)\/([^/']+)\/releases/)
+if (!uitUpdater) {
+  problemen.push('electron/services/updater.ts mist de RELEASES-link naar GitHub.')
+} else if (owner && repo && (uitUpdater[1] !== owner || uitUpdater[2] !== repo)) {
+  problemen.push(
+    'updater.ts wijst Mac-gebruikers naar ' + uitUpdater[1] + '/' + uitUpdater[2] +
+      ' maar electron-builder.yml naar ' + owner + '/' + repo + '.'
+  )
+}
+
 /* ----------------------------- git-afstand -------------------------------- */
 
 // stdio: git's eigen foutmeldingen onderdrukken; wij melden het zelf netter.

@@ -5,7 +5,23 @@ import type { UpdateStatus } from '../../shared/types'
 // electron-updater is CommonJS; de named export werkt niet met ESM-import.
 const { autoUpdater } = pkg
 
-let status: UpdateStatus = { state: 'idle', version: '', notes: '', progress: 0, error: '' }
+// Moet gelijk zijn aan publish.owner/repo in electron-builder.yml; check:release
+// kijkt dat na.
+const RELEASES = 'https://github.com/RubenJan1/flacdeck/releases'
+
+/**
+ * Op macOS kan FlacDeck zichzelf niet bijwerken. electron-updater wil daar een
+ * zip en vervangt alleen een ondertekende app, en wij hebben geen Apple
+ * Developer-account. Zoeken werkt wel; de gebruiker krijgt dan een directe link
+ * naar de dmg voor zijn soort Mac in plaats van een knop die op een fout uitloopt.
+ */
+const manual = process.platform === 'darwin'
+
+function manualUrl(version: string): string {
+  return RELEASES + '/download/v' + version + '/FlacDeck-' + version + '-macos-' + process.arch + '.dmg'
+}
+
+let status: UpdateStatus = { state: 'idle', version: '', notes: '', progress: 0, error: '', downloadUrl: '' }
 let broadcast: ((s: UpdateStatus) => void) | null = null
 
 function set(next: Partial<UpdateStatus>): void {
@@ -31,17 +47,19 @@ export function initUpdater(send: (s: UpdateStatus) => void): void {
   }
 
   autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.autoInstallOnAppQuit = !manual
 
   autoUpdater.on('checking-for-update', () => set({ state: 'zoeken', error: '' }))
-  autoUpdater.on('update-available', (info) =>
+  autoUpdater.on('update-available', (info) => {
+    const version = String(info.version ?? '')
     set({
       state: 'beschikbaar',
-      version: String(info.version ?? ''),
+      version,
       notes: typeof info.releaseNotes === 'string' ? info.releaseNotes : '',
-      error: ''
+      error: '',
+      downloadUrl: manual ? manualUrl(version) : ''
     })
-  )
+  })
   autoUpdater.on('update-not-available', () => set({ state: 'actueel', error: '' }))
   autoUpdater.on('download-progress', (p) => set({ state: 'downloaden', progress: Math.round(p.percent) }))
   autoUpdater.on('update-downloaded', (info) =>
@@ -69,7 +87,7 @@ export async function checkForUpdate(): Promise<UpdateStatus> {
 }
 
 export async function downloadUpdate(): Promise<UpdateStatus> {
-  if (status.state !== 'beschikbaar') return status
+  if (status.state !== 'beschikbaar' || manual) return status
   try {
     set({ state: 'downloaden', progress: 0 })
     await autoUpdater.downloadUpdate()
@@ -81,6 +99,6 @@ export async function downloadUpdate(): Promise<UpdateStatus> {
 
 /** Sluit de app af en installeert de gedownloade versie. */
 export function installUpdate(): void {
-  if (status.state !== 'gereed') return
+  if (status.state !== 'gereed' || manual) return
   setImmediate(() => autoUpdater.quitAndInstall(false, true))
 }
