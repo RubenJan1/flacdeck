@@ -115,6 +115,23 @@ export async function prepareCover(input: string, output: string, square: boolea
   return output
 }
 
+/**
+ * Zet een bestand dat een speler niet leest om naar FLAC, met de tags die erin
+ * zaten. Verliesvrij ten opzichte van de bron: beter wordt het niet, slechter ook niet.
+ */
+export async function convertToFlac(input: string, output: string): Promise<void> {
+  await fsp.mkdir(path.dirname(output), { recursive: true })
+  await runFfmpeg([
+    '-hide_banner', '-nostdin', '-y',
+    '-i', input,
+    '-map', '0:a:0',
+    '-map_metadata', '0',
+    '-c:a', 'flac',
+    '-compression_level', '5',
+    output
+  ])
+}
+
 function metaArgs(meta: TrackMeta): string[] {
   const args: string[] = []
   const put = (key: string, value: string): void => {

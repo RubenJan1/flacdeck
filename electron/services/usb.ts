@@ -1,10 +1,12 @@
 import type { Dirent } from 'node:fs'
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
-import { mediaInfo } from './audio'
+import { convertToFlac, mediaInfo } from './audio'
 import { applyTemplate, sanitize, uniqueName } from './naming'
 import {
   emptyMeta,
@@ -14,6 +16,7 @@ import {
   type ExportLayout,
   type ExportRequest,
   type ExportResult,
+  type FolderScan,
   type TrackMeta,
   type UnreadableStick
 } from '../../shared/types'
@@ -347,20 +350,111 @@ export function layoutOptions(): { id: ExportLayout; label: string; hint: string
   }))
 }
 
-/** Leest de tags terug uit een FLAC zodat de export op echte metadata bouwt. */
+/* --------------------------- bestaande muziek ----------------------------- */
+
+/**
+ * Wat een DJ-speler (Denon Engine, Pioneer) en de meeste USB-spelers zelf
+ * afspelen. Zulke bestanden gaan ongewijzigd mee: een mp3 omzetten naar FLAC
+ * maakt hem drie keer zo groot en geen haar beter.
+ */
+const PLAYER_FORMATS = new Set(['.mp3', '.m4a', '.flac', '.wav', '.aif', '.aiff'])
+
+/**
+ * Muziek die een speler niet leest; die wordt onderweg naar FLAC omgezet. De
+ * factor is hoeveel groter hij daarbij grofweg wordt, alleen om te schatten of
+ * alles op de stick past.
+ */
+const CONVERT_FORMATS: Record<string, number> = {
+  '.ogg': 6,
+  '.oga': 6,
+  '.opus': 7,
+  '.wma': 6,
+  '.aac': 6,
+  '.ape': 1.1,
+  '.wv': 1.1
+}
+
+async function walkMusic(dir: string, depth: number, out: string[]): Promise<void> {
+  if (depth > 10) return
+  let entries: Dirent[]
+  try {
+    entries = await fsp.readdir(dir, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    // Verborgen mappen en de "._"-schaduwbestanden van macOS zijn geen muziek.
+    if (entry.name.startsWith('.')) continue
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) await walkMusic(full, depth + 1, out)
+    else {
+      const ext = path.extname(entry.name).toLowerCase()
+      if (PLAYER_FORMATS.has(ext) || ext in CONVERT_FORMATS) out.push(full)
+    }
+  }
+}
+
+/**
+ * Zoekt alle muziek in een map die al op de computer staat. Leest alleen; de
+ * map zelf wordt nooit aangeraakt.
+ */
+export async function scanMusicFolder(dir: string): Promise<FolderScan> {
+  const paths: string[] = []
+  await walkMusic(dir, 0, paths)
+  paths.sort((a, b) => a.localeCompare(b))
+
+  const files: FolderScan['files'] = []
+  let bytes = 0
+  for (const p of paths) {
+    try {
+      const size = (await fsp.stat(p)).size
+      const growth = CONVERT_FORMATS[path.extname(p).toLowerCase()]
+      files.push({ path: p, size, convert: growth !== undefined })
+      bytes += Math.round(size * (growth ?? 1))
+    } catch {
+      /* net weggehaald */
+    }
+  }
+  return { dir, files, bytes }
+}
+
+/**
+ * Bestaande muziek heeft vaak geen tags, alleen een naam als
+ * "03 - Artiest - Titel.mp3". Zonder dit zou alles op de stick in de map
+ * "Onbekende artiest" belanden.
+ */
+export function guessFromFilename(file: string): { artist: string; title: string; trackNumber: string } {
+  let stem = path.basename(file, path.extname(file)).trim()
+  let trackNumber = ''
+  // Alleen een tracknummer met voorloopnul of leesteken erachter, zodat
+  // "50 Cent - In Da Club" en "3 Doors Down - Kryptonite" heel blijven.
+  const nr = /^(0\d{1,2}|\d{1,3}(?=\s*[-._)]))\s*[-._)]?\s*(.+)$/.exec(stem)
+  if (nr) {
+    trackNumber = String(Number(nr[1]))
+    stem = nr[2].trim()
+  }
+  const parts = /^(.+?)\s+[-–]\s+(.+)$/.exec(stem)
+  return parts
+    ? { artist: parts[1].trim(), title: parts[2].trim(), trackNumber }
+    : { artist: '', title: stem, trackNumber }
+}
+
+/** Leest de tags terug uit het bestand zodat de export op echte metadata bouwt. */
 async function metaOf(file: string): Promise<{ meta: TrackMeta; duration: number }> {
   const info = await mediaInfo(file)
   const t = info.tags
   const trackRaw = t.TRACK ?? t.TRACKNUMBER ?? ''
+  // Alleen gokken als er helemaal geen tags zijn; echte tags gaan altijd voor.
+  const guess = t.TITLE || t.ARTIST ? { artist: '', title: '', trackNumber: '' } : guessFromFilename(file)
   const meta: TrackMeta = {
     ...emptyMeta(),
-    artist: t.ARTIST ?? '',
-    title: t.TITLE ?? path.basename(file, path.extname(file)),
+    artist: t.ARTIST ?? guess.artist,
+    title: t.TITLE ?? (guess.title || path.basename(file, path.extname(file))),
     album: t.ALBUM ?? '',
     albumArtist: t.ALBUM_ARTIST ?? t.ALBUMARTIST ?? t.ARTIST ?? '',
     genre: t.GENRE ?? '',
     year: (t.DATE ?? t.YEAR ?? '').slice(0, 4),
-    trackNumber: trackRaw.split('/')[0] ?? '',
+    trackNumber: trackRaw.split('/')[0] || guess.trackNumber,
     totalTracks: t.TRACKTOTAL ?? t.TOTALTRACKS ?? trackRaw.split('/')[1] ?? '',
     bpm: t.BPM ?? '',
     initialKey: t.INITIALKEY ?? t.KEY ?? '',
@@ -371,10 +465,11 @@ async function metaOf(file: string): Promise<{ meta: TrackMeta; duration: number
 }
 
 /**
- * Zoekt in dir naar "base.flac" of "base (n).flac" met exact deze grootte.
+ * Zoekt in dir naar "base.ext" of "base (n).ext" met exact deze grootte.
  * Dat is de goedkoopste betrouwbare manier om te zien of dit nummer er al staat.
+ * size null = alleen op naam: een omgezet bestand heeft nooit de grootte van de bron.
  */
-async function findCopy(dir: string, base: string, size: number): Promise<string | null> {
+async function findCopy(dir: string, base: string, ext: string, size: number | null): Promise<string | null> {
   let names: string[]
   try {
     names = await fsp.readdir(dir)
@@ -384,13 +479,13 @@ async function findCopy(dir: string, base: string, size: number): Promise<string
   const prefix = base.toLowerCase()
   for (const name of names) {
     const lower = name.toLowerCase()
-    if (!lower.endsWith('.flac')) continue
-    const stem = lower.slice(0, -5)
+    if (!lower.endsWith(ext)) continue
+    const stem = lower.slice(0, -ext.length)
     if (stem !== prefix && !/^ \(\d+\)$/.test(stem.slice(prefix.length))) continue
     if (!stem.startsWith(prefix)) continue
     const full = path.join(dir, name)
     try {
-      if ((await fsp.stat(full)).size === size) return full
+      if (size === null || (await fsp.stat(full)).size === size) return full
     } catch {
       /* net weggehaald */
     }
@@ -416,6 +511,17 @@ async function copyFile(src: string, dest: string): Promise<number> {
     await handle.close()
   }
   return (await fsp.stat(dest)).size
+}
+
+/** Zet om in een tijdelijke map en kopieert daarna met dezelfde fsync als copyFile. */
+async function convertAndCopy(src: string, dest: string): Promise<number> {
+  const temp = path.join(os.tmpdir(), 'flacdeck-omzetten', randomUUID() + '.flac')
+  try {
+    await convertToFlac(src, temp)
+    return await copyFile(temp, dest)
+  } finally {
+    await fsp.rm(temp, { force: true })
+  }
 }
 
 function fsWarnings(target: string, filesystem: string, layout: ExportLayout): string[] {
@@ -694,7 +800,8 @@ export async function exportTracks(
     warnings: [],
     verified: 0,
     missing: [],
-    junkRemoved: 0
+    junkRemoved: 0,
+    converted: 0
   }
 
   const drives = await listDrives()
@@ -731,31 +838,35 @@ export async function exportTracks(
       const taken = takenPerDir.get(key) as Set<string>
 
       const base = applyTemplate(layout.file, meta, { ascii, maxLength: layout.maxLen })
+      const srcExt = path.extname(src).toLowerCase()
+      const convert = !PLAYER_FORMATS.has(srcExt)
+      const ext = convert ? '.flac' : srcExt
 
       let dest: string
       if (req.overwrite) {
-        dest = path.join(dir, base + '.flac')
-        taken.add((base + '.flac').toLowerCase())
+        dest = path.join(dir, base + ext)
+        taken.add((base + ext).toLowerCase())
       } else {
         // Ook eerder hernoemde kopieën meenemen, anders groeit de stick bij elke
         // export aan met "(2)", "(3)", "(4)" van hetzelfde nummer.
         const srcSize = (await fsp.stat(src)).size
-        const already = await findCopy(dir, base, srcSize)
+        const already = await findCopy(dir, base, ext, convert ? null : srcSize)
         if (already) {
           result.skipped += 1
           playlistEntries.push({
             relative: path.relative(req.target, already),
             absolute: already,
-            size: srcSize,
+            size: convert ? (await fsp.stat(already)).size : srcSize,
             meta,
             duration
           })
           continue
         }
-        dest = path.join(dir, uniqueName(base, '.flac', taken))
+        dest = path.join(dir, uniqueName(base, ext, taken))
       }
 
-      const written = await copyFile(src, dest)
+      const written = convert ? await convertAndCopy(src, dest) : await copyFile(src, dest)
+      if (convert) result.converted += 1
       result.bytes += written
       result.copied += 1
       playlistEntries.push({

@@ -7,6 +7,7 @@ import type {
   ExportLayout,
   ExportRequest,
   ExportResult,
+  FolderScan,
   Job,
   JobRequest,
   LibraryItem,
@@ -87,6 +88,7 @@ const api = {
   usb: {
     drives: (): Promise<DriveInfo[]> => ipcRenderer.invoke('usb:drives'),
     unreadable: (): Promise<UnreadableStick[]> => ipcRenderer.invoke('usb:unreadable'),
+    scanFolder: (dir: string): Promise<FolderScan> => ipcRenderer.invoke('usb:scan-folder', dir),
     check: (target: string, layout: ExportLayout): Promise<DriveCheck> =>
       ipcRenderer.invoke('usb:check', target, layout),
     eject: (target: string): Promise<EjectResult> => ipcRenderer.invoke('usb:eject', target),

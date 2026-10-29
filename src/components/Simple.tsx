@@ -9,6 +9,7 @@ import {
   type DriveInfo,
   type ExportLayout,
   type ExportResult,
+  type FolderScan,
   type Job,
   type LibraryItem,
   type ProbeResult,
@@ -63,7 +64,10 @@ export default function Simple({ settings, jobs, notify, onSettings, onAdvanced 
 
   // Stap 4
   const [library, setLibrary] = useState<LibraryItem[]>([])
-  const [alles, setAlles] = useState(false)
+  // Wat er op de stick gaat: net opgehaald, alles uit FlacDeck, of een eigen map.
+  const [bron, setBron] = useState<'nieuw' | 'alles' | 'map'>('nieuw')
+  const [map, setMap] = useState<FolderScan | null>(null)
+  const [mapZoeken, setMapZoeken] = useState(false)
   const [drives, setDrives] = useState<DriveInfo[]>([])
   const [dicht, setDicht] = useState<UnreadableStick[]>([])
   const [target, setTarget] = useState('')
@@ -236,11 +240,32 @@ export default function Simple({ settings, jobs, notify, onSettings, onAdvanced 
     () => klaarJobs.map((j) => j.outputPath).filter((p): p is string => Boolean(p)),
     [klaarJobs]
   )
-  const tePaden = alles || !nieuwePaden.length ? library.map((i) => i.path) : nieuwePaden
+  const vanMap = bron === 'map' && map !== null
+  const tePaden = vanMap
+    ? map.files.map((f) => f.path)
+    : bron === 'nieuw' && nieuwePaden.length
+      ? nieuwePaden
+      : library.map((i) => i.path)
   const teBytes = useMemo(() => {
+    if (vanMap) return map.bytes
     const perPad = new Map(library.map((i) => [i.path, i.size]))
     return tePaden.reduce((som, p) => som + (perPad.get(p) ?? 0), 0)
-  }, [library, tePaden])
+  }, [vanMap, map, library, tePaden])
+  const omTeZetten = vanMap ? map.files.filter((f) => f.convert).length : 0
+
+  const kiesMap = async (): Promise<void> => {
+    const dir = await window.api.dialog.pickDirectory('Kies de map met je muziek')
+    if (!dir) return
+    setMapZoeken(true)
+    try {
+      setMap(await window.api.usb.scanFolder(dir))
+      setBron('map')
+    } catch (err) {
+      notify((err as Error).message, 'err')
+    } finally {
+      setMapZoeken(false)
+    }
+  }
 
   const drive = drives.find((d) => d.path === target)
   const past = !drive || drive.freeBytes <= 0 || teBytes <= drive.freeBytes
@@ -293,7 +318,8 @@ export default function Simple({ settings, jobs, notify, onSettings, onAdvanced 
     setBatchIds([])
     setResultaat(null)
     setLosgekoppeld(null)
-    setAlles(false)
+    setBron('nieuw')
+    setMap(null)
     setFout('')
     setStep('start')
   }
@@ -535,9 +561,9 @@ export default function Simple({ settings, jobs, notify, onSettings, onAdvanced 
               <input
                 type="radio"
                 name="welke"
-                checked={!alles && nieuwePaden.length > 0}
+                checked={bron === 'nieuw' && nieuwePaden.length > 0}
                 disabled={!nieuwePaden.length}
-                onChange={() => setAlles(false)}
+                onChange={() => setBron('nieuw')}
               />
               De {nieuwePaden.length} nummers die je net hebt opgehaald
             </label>
@@ -545,12 +571,46 @@ export default function Simple({ settings, jobs, notify, onSettings, onAdvanced 
               <input
                 type="radio"
                 name="welke"
-                checked={alles || !nieuwePaden.length}
-                onChange={() => setAlles(true)}
+                checked={bron === 'alles' || (bron === 'nieuw' && !nieuwePaden.length)}
+                onChange={() => setBron('alles')}
               />
               Alle {library.length} nummers in FlacDeck
             </label>
+            <label className="checkbox groot">
+              <input
+                type="radio"
+                name="welke"
+                checked={vanMap}
+                onChange={() => (map ? setBron('map') : void kiesMap())}
+              />
+              Muziek uit een map op deze computer
+            </label>
           </div>
+
+          {bron === 'map' && map && (
+            <div className="note wiz-note">
+              <strong>
+                {map.files.length} {map.files.length === 1 ? 'nummer' : 'nummers'} gevonden
+              </strong>{' '}
+              in {map.dir.split(/[\\/]/).pop() || map.dir}, ook in de mappen daarin.
+              {omTeZetten > 0 &&
+                ' ' +
+                  omTeZetten +
+                  (omTeZetten === 1 ? ' bestand leest' : ' bestanden lezen') +
+                  ' de speler niet; die worden onderweg omgezet naar FLAC.'}{' '}
+              De map zelf blijft zoals hij is.
+              {!map.files.length && ' Kies een andere map: hier staat geen muziek in.'}
+            </div>
+          )}
+
+          <button
+            className="btn wiz-link"
+            onClick={() => void kiesMap()}
+            disabled={mapZoeken || kopieren}
+            style={{ marginBottom: 6 }}
+          >
+            {mapZoeken ? 'Muziek zoeken…' : map ? 'Een andere map kiezen' : 'Kies een map met muziek'}
+          </button>
 
           <div className="wiz-samenvatting">
             {tePaden.length} {tePaden.length === 1 ? 'nummer' : 'nummers'} · {formatBytes(teBytes)}
@@ -609,7 +669,8 @@ export default function Simple({ settings, jobs, notify, onSettings, onAdvanced 
               <h1>Nog één stap: de stick loskoppelen</h1>
               <p className="wiz-lead">
                 {resultaat.verified} {resultaat.verified === 1 ? 'nummer staat' : 'nummers staan'} op de stick
-                {resultaat.skipped ? ' (' + resultaat.skipped + ' stond er al)' : ''}.
+                {resultaat.skipped ? ' (' + resultaat.skipped + ' stond er al)' : ''}
+                {resultaat.converted ? ', waarvan ' + resultaat.converted + ' omgezet naar FLAC' : ''}.
                 <strong> Trek de stick er nog niet uit.</strong> De computer moet hem eerst netjes loslaten,
                 anders raakt de stick beschadigd en speelt hij straks maar een paar nummers.
               </p>

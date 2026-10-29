@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 import { binaryStatus, installYtdlp } from './services/binaries'
@@ -22,7 +22,8 @@ import {
   exportTracks,
   layoutOptions,
   listDrives,
-  listUnreadable
+  listUnreadable,
+  scanMusicFolder
 } from './services/usb'
 import { playlistUrls, probe } from './services/ytdlp'
 import type { ExportLayout, ExportRequest, JobRequest, Settings, TrackMeta } from '../shared/types'
@@ -79,6 +80,26 @@ function createWindow(): void {
       busyReason = ''
       window.destroy()
     }
+  })
+
+  // Electron heeft geen rechtermuisknop-menu van zichzelf. Wie een link wil
+  // plakken en met rechts klikt, kreeg dus niets: dan lijkt het vak kapot.
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const window = mainWindow
+    if (!window) return
+    const flags = params.editFlags
+    const items: MenuItemConstructorOptions[] = params.isEditable
+      ? [
+          { label: 'Knippen', role: 'cut', enabled: flags.canCut },
+          { label: 'Kopiëren', role: 'copy', enabled: flags.canCopy },
+          { label: 'Plakken', role: 'paste', enabled: flags.canPaste },
+          { type: 'separator' },
+          { label: 'Alles selecteren', role: 'selectAll', enabled: flags.canSelectAll }
+        ]
+      : params.selectionText.trim()
+        ? [{ label: 'Kopiëren', role: 'copy' }]
+        : []
+    if (items.length) Menu.buildFromTemplate(items).popup({ window })
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -169,6 +190,7 @@ function registerIpc(): void {
 
   ipcMain.handle('usb:drives', () => listDrives())
   ipcMain.handle('usb:unreadable', () => listUnreadable())
+  ipcMain.handle('usb:scan-folder', (_e, dir: string) => scanMusicFolder(dir))
   ipcMain.handle('usb:check', (_e, target: string, layout: ExportLayout) => checkDrive(target, layout))
   ipcMain.handle('usb:eject', (_e, target: string) => ejectDrive(target))
   ipcMain.handle('usb:cleanup', (_e, target: string) => cleanupDrive(target))

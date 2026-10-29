@@ -14,10 +14,12 @@ import {
   cleanupDrive,
   ejectDrive,
   exportTracks,
+  guessFromFilename,
   layoutOptions,
   listDrives,
   parseMacUnreadable,
-  parseWindowsUnreadable
+  parseWindowsUnreadable,
+  scanMusicFolder
 } from '../electron/services/usb'
 
 const work = path.join(os.tmpdir(), 'flacdeck-test', 'usb')
@@ -224,6 +226,55 @@ async function main(): Promise<void> {
     tree(libDir).includes('Muziek/Rock/AC-DC/Back in Black/01 - Back in Black.flac'),
     tree(libDir).join(' | ')
   )
+
+  /* ----------------------- bestaande muziek uit een map --------------------- */
+
+  const raad = (naam: string): string => JSON.stringify(guessFromFilename(naam))
+  check('naam: nummer, artiest en titel', raad('03 - Daft Punk - One More Time.mp3') ===
+    JSON.stringify({ artist: 'Daft Punk', title: 'One More Time', trackNumber: '3' }), raad('03 - Daft Punk - One More Time.mp3'))
+  check('naam: "01. Titel" zonder artiest', raad('01. Intro.mp3') ===
+    JSON.stringify({ artist: '', title: 'Intro', trackNumber: '1' }), raad('01. Intro.mp3'))
+  check('naam: 50 Cent blijft een artiest', raad('50 Cent - In Da Club.mp3') ===
+    JSON.stringify({ artist: '50 Cent', title: 'In Da Club', trackNumber: '' }), raad('50 Cent - In Da Club.mp3'))
+  check('naam: 1999 blijft een titel', raad('1999.mp3') ===
+    JSON.stringify({ artist: '', title: '1999', trackNumber: '' }), raad('1999.mp3'))
+
+  const mijnMap = path.join(work, 'eigen muziek')
+  await fsp.mkdir(path.join(mijnMap, 'Album'), { recursive: true })
+  const mp3 = path.join(mijnMap, 'Album', '02 - Moby - Porcelain.mp3')
+  const ogg = path.join(mijnMap, 'Underworld - Born Slippy.ogg')
+  await ffmpeg(['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=2', '-c:a', 'libmp3lame', '-b:a', '128k', mp3])
+  await ffmpeg(['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=550:duration=2', '-c:a', 'libvorbis', ogg])
+  await fsp.writeFile(path.join(mijnMap, 'hoes.jpg'), 'geen muziek')
+  await fsp.writeFile(path.join(mijnMap, 'Album', '._02 - Moby - Porcelain.mp3'), 'appledouble')
+  const mp3Voor = fs.readFileSync(mp3)
+
+  const scan = await scanMusicFolder(mijnMap)
+  check('map: twee nummers gevonden, ook in submap', scan.files.length === 2, scan.files.map((f) => f.path).join(' | '))
+  check('map: ogg wordt omgezet, mp3 niet',
+    scan.files.find((f) => f.path === ogg)?.convert === true && scan.files.find((f) => f.path === mp3)?.convert === false)
+
+  const denonDir = path.join(dstDir, 'denon')
+  await fsp.mkdir(denonDir, { recursive: true })
+  const denon = await exportTracks({
+    paths: scan.files.map((f) => f.path), target: denonDir, layout: 'dj', asciiNames: false,
+    createM3u: false, playlistName: '', overwrite: false
+  })
+  const denonTree = tree(denonDir)
+  check('map: niets mislukt', denon.failed.length === 0, JSON.stringify(denon.failed))
+  check('map: mp3 blijft mp3, met naam uit de bestandsnaam',
+    denonTree.includes('Contents/Moby/02 Moby - Porcelain.mp3'), denonTree.join(' | '))
+  check('map: ogg is FLAC geworden', denonTree.includes('Contents/Underworld/Underworld - Born Slippy.flac'), denonTree.join(' | '))
+  check('map: één bestand omgezet', denon.converted === 1, String(denon.converted))
+  check('map: beide teruggevonden op de stick', denon.verified === 2, String(denon.verified))
+  check('map: origineel onaangeroerd', fs.readFileSync(mp3).equals(mp3Voor) && fs.existsSync(ogg))
+
+  const denonWeer = await exportTracks({
+    paths: scan.files.map((f) => f.path), target: denonDir, layout: 'dj', asciiNames: false,
+    createM3u: false, playlistName: '', overwrite: false
+  })
+  check('map: tweede keer alles overgeslagen, ook het omgezette',
+    denonWeer.skipped === 2 && denonWeer.copied === 0, 'gekopieerd=' + denonWeer.copied + ' overgeslagen=' + denonWeer.skipped)
 
   /* ------------------------------- schijven -------------------------------- */
 

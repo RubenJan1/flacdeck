@@ -149,6 +149,16 @@ export interface ExportResult {
   missing: string[]
   /** Opgeruimde verborgen systeembestanden van macOS/Windows. */
   junkRemoved: number
+  /** Bestanden die de speler niet las en onderweg naar FLAC zijn omgezet. */
+  converted: number
+}
+
+/** Een map met muziek die al op de computer stond en naar de stick moet. */
+export interface FolderScan {
+  dir: string
+  files: { path: string; size: number; convert: boolean }[]
+  /** Geschatte ruimte op de stick; omgezette bestanden worden als FLAC groter. */
+  bytes: number
 }
 
 /** Uitkomst van de controle vooraf: mag er naar deze stick geschreven worden? */

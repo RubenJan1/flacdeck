@@ -255,6 +255,20 @@ terugbewaart. Wachten tot de opname na afloop online staat geeft een exacte knip
 In de eenvoudige modus zijn dit stap 4 en 5. In de geavanceerde modus doe je het op het
 tabblad **Bibliotheek & USB**: aanvinken wat mee moet, schijf kiezen, indeling kiezen.
 
+### Muziek die al op de computer staat
+
+In stap 4 kun je bij **Wat gaat er op?** ook kiezen voor *Muziek uit een map op deze computer*.
+FlacDeck neemt dan alles mee uit die map en de mappen daarin, en zet het in de gekozen
+indeling op de stick. De map zelf wordt alleen gelezen, nooit veranderd.
+
+- **mp3, m4a (AAC en ALAC), FLAC, WAV en AIFF** gaan ongewijzigd mee. Die leest een Denon- of
+  Pioneer-speler zelf, en een mp3 omzetten naar FLAC maakt hem alleen groter.
+- **WMA, OGG, Opus, losse AAC, APE en WavPack** worden onderweg omgezet naar FLAC.
+- Heeft een bestand geen tags, dan haalt FlacDeck artiest, titel en tracknummer uit de
+  bestandsnaam (`03 - Artiest - Titel.mp3`). Echte tags gaan altijd voor.
+- Nummers die al op de stick staan worden de volgende keer overgeslagen, ook de omgezette.
+- Bestanden met kopieerbeveiliging (oude iTunes-aankopen, `.m4p`) kunnen niet mee.
+
 ### Waarom er een knop "veilig uitwerpen" is
 
 Kopiëren is niet klaar als de voortgangsbalk vol staat. Het besturingssysteem houdt geschreven
