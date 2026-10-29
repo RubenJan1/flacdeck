@@ -3,15 +3,18 @@ name: Build
 # Bouwt installers voor Windows en macOS en zet ze in een release.
 #
 # Nieuwe versie uitbrengen:
-#   1. versienummer ophogen in package.json
-#   2. git commit + git push
-#   3. git tag v1.0.3
-#   4. git push origin v1.0.3
+#   npm run check:release
+#   npm version patch
+#   git push --follow-tags
 #
 # Dit maakt:
 #   - Windows x64
 #   - macOS arm64 (Apple Silicon)
 #   - macOS x64 (Intel)
+#
+# De builds publiceren zelf niets. Lieten ze electron-builder elk naar dezelfde
+# release uploaden, dan raceten de twee Mac-jobs: bij 1.1.1 kwam de Intel-dmg
+# nergens terecht. Eén release-job aan het eind zet alles in één keer neer.
 
 on:
   push:
@@ -78,10 +81,9 @@ jobs:
           test -f out/renderer/index.html || { echo "out/renderer/index.html ontbreekt"; exit 1; }
 
       # Iedere job bouwt precies één platform/architectuur.
-      - name: Inpakken en publiceren
-        run: npx electron-builder --${{ matrix.builder-target }} --${{ matrix.builder-arch }} --publish always
+      - name: Inpakken
+        run: npx electron-builder --${{ matrix.builder-target }} --${{ matrix.builder-arch }} --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Installers bewaren als artifact
@@ -91,6 +93,49 @@ jobs:
           path: |
             dist/*.exe
             dist/*.dmg
-            dist/*.yml
-          if-no-files-found: warn
+            dist/*.blockmap
+            dist/latest*.yml
+          if-no-files-found: error
           retention-days: 14
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Installers ophalen
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # Beide Mac-jobs schrijven een latest-mac.yml. De app op de Mac leest daar
+      # alleen het versienummer uit (bijwerken gaat via de dmg), dus die van
+      # arm64 volstaat. Elke installer moet er wel zijn, anders geen release.
+      - name: Bestanden klaarzetten
+        shell: bash
+        run: |
+          set -euo pipefail
+          versie="${GITHUB_REF_NAME#v}"
+          mkdir release
+          for bestand in \
+            "artifacts/flacdeck-windows/FlacDeck-$versie-windows-x64.exe" \
+            "artifacts/flacdeck-windows/FlacDeck-$versie-windows-x64.exe.blockmap" \
+            "artifacts/flacdeck-windows/latest.yml" \
+            "artifacts/flacdeck-macos-arm64/FlacDeck-$versie-macos-arm64.dmg" \
+            "artifacts/flacdeck-macos-x64/FlacDeck-$versie-macos-x64.dmg" \
+            "artifacts/flacdeck-macos-arm64/latest-mac.yml"; do
+            test -f "$bestand" || { echo "Ontbreekt: $bestand"; ls -R artifacts; exit 1; }
+            cp "$bestand" release/
+          done
+          cp artifacts/flacdeck-macos-*/*.dmg.blockmap release/ 2>/dev/null || true
+          echo "versie=$versie" >> "$GITHUB_ENV"
+          ls -l release
+
+      - name: Release maken
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ env.versie }}
+          files: release/*
+          fail_on_unmatched_files: true
+          make_latest: true
